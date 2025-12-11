@@ -180,6 +180,11 @@
                 <!-- 1. Header -->
                 <div class="h-10 bg-[#2d2d2d] border-b border-[#454545] flex items-center px-4 justify-between">
                     <span class="font-bold text-sm"><i class="fa-solid fa-bezier-curve mr-2"></i>Geometry Editor</span>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="text-gray-400">Grid:</span>
+                        <input type="number" v-model.number="modalGridSize" class="w-16 input-dark text-center">
+                        <span class="text-gray-500">px</span>
+                    </div>
                     <div class="flex gap-2">
                         <button @click="saveModel" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Save as Group</button>
                         <button @click="closeModelerModal" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">Close</button>
@@ -230,12 +235,12 @@
                                     <template v-if="modalSelectedType === 'vertex'">
                                         <div class="grid grid-cols-2 gap-2 text-xs">
                                             <div>
-                                                <label class="text-gray-500">X</label>
-                                                <input type="number" v-model.number="modalSelectedObject.left" @input="onVertexInput" class="input-dark">
+                                                <label class="text-gray-500">X ({{ currentUnit.label }})</label>
+                                                <input type="number" :value="toUnit(modalSelectedObject.left)" @input="onVertexInput('x', $event.target.value)" class="input-dark">
                                             </div>
                                             <div>
-                                                <label class="text-gray-500">Y</label>
-                                                <input type="number" v-model.number="modalSelectedObject.top" @input="onVertexInput" class="input-dark">
+                                                <label class="text-gray-500">Y ({{ currentUnit.label }})</label>
+                                                <input type="number" :value="toUnit(modalSelectedObject.top)" @input="onVertexInput('y', $event.target.value)" class="input-dark">
                                             </div>
                                         </div>
                                     </template>
@@ -245,7 +250,7 @@
                                         <div class="space-y-3 text-xs">
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div>
-                                                    <label class="text-gray-500 block mb-1">Length</label>
+                                                    <label class="text-gray-500 block mb-1">Length ({{ currentUnit.label }})</label>
                                                     <input type="number" v-model.number="edgeProps.length" @change="updateEdgeFromParam('length')" class="input-dark text-yellow-300 font-bold">
                                                 </div>
                                                 <div>
@@ -320,6 +325,33 @@
                     return currentUnitKey.value === 'mmgs' ? Math.round(val) : parseFloat(val.toFixed(3));
                 };
                 const toPx = (unitVal) => Math.round(parseFloat(unitVal) * currentUnit.value.pixelsPerUnit);
+
+                // --- Modal Interactivity State & Handlers ---
+                let isModalDragging = false, isModalSpacePressed = false, lastMX = 0, lastMY = 0;
+
+                const modalKeyDownHandler = (e) => {
+                    if (e.code === 'Space' && !isModalSpacePressed) {
+                        e.preventDefault();
+                        isModalSpacePressed = true;
+                        if (modalCanvas.value) {
+                            modalCanvas.value.defaultCursor = 'grab';
+                            modalCanvas.value.selection = false;
+                            modalCanvas.value.requestRenderAll();
+                        }
+                    }
+                };
+                const modalKeyUpHandler = (e) => {
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        isModalSpacePressed = false;
+                        if (modalCanvas.value && !isModalDragging) {
+                            modalCanvas.value.defaultCursor = 'default';
+                            modalCanvas.value.selection = true;
+                            modalCanvas.value.requestRenderAll();
+                        }
+    
+                    }
+                };
 
                 onMounted(() => { initMainCanvas(); });
 
@@ -435,7 +467,23 @@
                     canvas.value.on('mouse:up', function() {
                         canvas.value.setViewportTransform(canvas.value.viewportTransform);
                         isDragging = false;
-                        canvas.value.selection = true;
+                        // 스페이스바를 떼고 드래그가 끝나면 선택 활성화
+                        if (!isSpacePressed) {
+                           canvas.value.selection = true;
+                        }
+                    });
+
+                    // --- 스내핑 로직 추가 ---
+                    canvas.value.on('object:moving', function(e) {
+                        if (!snapEnabled.value) return;
+                        
+                        const target = e.target;
+                        const grid = gridSize.value * currentUnit.value.pixelsPerUnit;
+
+                        target.set({
+                            left: Math.round(target.left / grid) * grid,
+                            top: Math.round(target.top / grid) * grid
+                        });
                     });
 
                     // Other Events
@@ -458,15 +506,25 @@
                 };
 
                 const closeModelerModal = () => {
+                    // Clean up global listeners to prevent memory leaks and conflicts
+                    window.removeEventListener('keydown', modalKeyDownHandler);
+                    window.removeEventListener('keyup', modalKeyUpHandler);
+                    isModalSpacePressed = false;
+                    isModalDragging = false;
+
                     showModal.value = false;
-                    if (modalCanvas.value) { modalCanvas.value.dispose(); modalCanvas.value = null; }
+                    if (modalCanvas.value) {
+                        modalCanvas.value.dispose();
+                        modalCanvas.value = null;
+                    }
                 };
 
                 const initModalCanvas = () => {
                     const wrapper = document.getElementById('modal-canvas-wrapper');
                     modalCanvas.value = new fabric.Canvas('modal-canvas', {
                         width: wrapper.clientWidth, height: wrapper.clientHeight,
-                        backgroundColor: '#252526', selection: false
+                        backgroundColor: '#252526',
+                        selection: true // Enable drag-to-select
                     });
 
                     // Background Grid
@@ -476,53 +534,90 @@
                         modalCanvas.value.add(new fabric.Line([-2000, i, 2000, i], gridLineOpts));
                     }
 
-                    // Panning for Modal
-                    let isModalDragging = false;
-                    let lastMX = 0, lastMY = 0;
+                    // Add modal-specific global event listeners
+                    window.addEventListener('keydown', modalKeyDownHandler);
+                    window.addEventListener('keyup', modalKeyUpHandler);
+                    
+                    // Panning with Space + Drag
                     modalCanvas.value.on('mouse:down', function(opt) {
-                        if (opt.e.code === 'Space' || opt.e.button === 1) {
+                        const evt = opt.e;
+                        if (isModalSpacePressed && evt.button === 0) {
                             isModalDragging = true;
-                            modalCanvas.value.selection = false;
-                            lastMX = opt.e.clientX;
-                            lastMY = opt.e.clientY;
-                            modalCanvas.value.defaultCursor = 'grabbing';
+                            this.selection = false;
+                            lastMX = evt.clientX;
+                            lastMY = evt.clientY;
+                            this.defaultCursor = 'grabbing';
                         }
                     });
                     modalCanvas.value.on('mouse:move', function(opt) {
                         if (isModalDragging) {
-                            const vpt = modalCanvas.value.viewportTransform;
-                            vpt[4] += opt.e.clientX - lastMX;
-                            vpt[5] += opt.e.clientY - lastMY;
-                            modalCanvas.value.requestRenderAll();
-                            lastMX = opt.e.clientX;
-                            lastMY = opt.e.clientY;
+                            const e = opt.e;
+                            const vpt = this.viewportTransform;
+                            vpt[4] += e.clientX - lastMX;
+                            vpt[5] += e.clientY - lastMY;
+                            this.requestRenderAll();
+                            lastMX = e.clientX;
+                            lastMY = e.clientY;
                         }
                     });
-                    modalCanvas.value.on('mouse:up', () => { 
-                        isModalDragging = false; 
-                        modalCanvas.value.defaultCursor = 'default';
-                        modalCanvas.value.selection = false; // Keep false to force explicit click
+                    modalCanvas.value.on('mouse:up', function() {
+                        this.setViewportTransform(this.viewportTransform);
+                        isModalDragging = false;
+                        if (!isModalSpacePressed) {
+                           this.selection = true;
+                        }
+                        this.defaultCursor = isModalSpacePressed ? 'grab' : 'default';
+                        this.requestRenderAll();
                     });
+                    
+                    // Zoom/Scroll with mouse wheel (like main canvas)
                     modalCanvas.value.on('mouse:wheel', function(opt) {
                         const evt = opt.e;
                         evt.preventDefault(); evt.stopPropagation();
-                        let zoom = modalCanvas.value.getZoom() * (0.999 ** evt.deltaY);
-                        if (zoom > 5) zoom = 5; if (zoom < 0.2) zoom = 0.2;
-                        modalCanvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                        const delta = evt.deltaY;
+
+                        if (evt.altKey) { // Zoom
+                            let zoom = this.getZoom() * (0.999 ** delta);
+                            if (zoom > 5) zoom = 5; if (zoom < 0.2) zoom = 0.2;
+                            this.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                        } else { // Scroll (Pan)
+                            const speedMultiplier = evt.shiftKey ? 5 : 1;
+                            const moveAmount = delta * speedMultiplier;
+                            const vpt = this.viewportTransform;
+                            if (evt.ctrlKey) { // Horizontal scroll
+                                vpt[4] -= moveAmount;
+                            } else { // Vertical scroll
+                                vpt[5] -= moveAmount;
+                            }
+                            this.requestRenderAll();
+                        }
                     });
 
-
-                    // Object Events
+                    // Object Events for group selection and snapping
                     modalCanvas.value.on('object:moving', (e) => {
                         const target = e.target;
-                        if (target.type === 'circle') { // Vertex
+                        if (target.type === 'circle') { // Single vertex movement
                             handleVertexDrag(target);
+                        } else if (target.type === 'activeSelection') { // Group movement
+                            const grid = 50; // Modal grid size
+                            // Snap the group's top-left corner to the grid
+                            target.set({
+                                left: Math.round(target.left / grid) * grid,
+                                top: Math.round(target.top / grid) * grid
+                            });
+                            // Update edges connected to the moving vertices
+                            target.getObjects().forEach(obj => {
+                                if (obj.type === 'circle') {
+                                    updateConnectedEdges(obj);
+                                }
+                            });
+                            detectAndFillLoops();
                         }
                     });
 
                     modalCanvas.value.on('object:modified', (e) => {
                          if (e.target.type === 'circle') {
-                             handleVertexDrop(e.target); // Merge Logic
+                             handleVertexDrop(e.target); // This handles merging
                          }
                     });
 
@@ -534,13 +629,24 @@
                 };
 
                 const onModalSelection = (e) => {
+                    // If more than one object is selected, clear the inspector
+                    if (e.selected.length > 1) {
+                        modalSelectedObject.value = null;
+                        modalSelectedType.value = null;
+                        return;
+                    }
                     const target = e.selected[0];
                     if (!target) return;
+                    
                     modalSelectedObject.value = target;
-                    if (target.type === 'circle') modalSelectedType.value = 'vertex';
-                    else if (target.type === 'line') {
+                    if (target.type === 'circle') {
+                        modalSelectedType.value = 'vertex';
+                    } else if (target.type === 'line') {
                         modalSelectedType.value = 'edge';
                         calculateEdgeProps(target);
+                    } else {
+                        modalSelectedObject.value = null;
+                        modalSelectedType.value = null;
                     }
                 };
 
@@ -720,31 +826,40 @@
                     }
                 };
 
-                const onVertexInput = () => {
+                const onVertexInput = (axis, value) => {
                     const v = modalSelectedObject.value;
-                    if (!v) return;
-                    handleVertexDrag(v); // Reuse drag logic for updating edges/fill
+                    if (!v || v.type !== 'circle') return;
+
+                    const pxValue = toPx(value);
+                    if (axis === 'x') v.set('left', pxValue);
+                    else v.set('top', pxValue);
+                    
+                    v.setCoords();
+                    // Instead of full drag logic, just update edges and fill
+                    updateConnectedEdges(v);
+                    detectAndFillLoops();
+                    modalCanvas.value.requestRenderAll();
                 };
+
 
                 const calculateEdgeProps = (line) => {
                     const dx = line.x2 - line.x1;
                     const dy = line.y2 - line.y1;
-                    edgeProps.value.length = parseFloat(Math.sqrt(dx*dx + dy*dy).toFixed(2));
+                    edgeProps.value.length = toUnit(Math.sqrt(dx*dx + dy*dy));
                     edgeProps.value.angle = parseFloat((Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2));
                 };
 
                 const updateEdgeFromParam = (type) => {
                     const line = modalSelectedObject.value;
                     if (!line || !line.v1 || !line.v2) return;
-                    let len = edgeProps.value.length;
-                    let ang = edgeProps.value.angle * Math.PI / 180;
                     
-                    // Fixed v1, Move v2
                     if (type === 'length') {
+                        const len = toPx(edgeProps.value.length);
                         const curAng = Math.atan2(line.y2 - line.y1, line.x2 - line.x1);
                         line.v2.left = line.v1.left + len * Math.cos(curAng);
                         line.v2.top = line.v1.top + len * Math.sin(curAng);
                     } else if (type === 'angle') {
+                        const ang = edgeProps.value.angle * Math.PI / 180;
                         const dx = line.x2 - line.x1; 
                         const dy = line.y2 - line.y1;
                         const curLen = Math.sqrt(dx*dx + dy*dy);
@@ -753,7 +868,10 @@
                     }
                     
                     line.v2.setCoords();
-                    handleVertexDrag(line.v2);
+                    updateConnectedEdges(line.v2);
+                    detectAndFillLoops();
+                    calculateEdgeProps(line); // Recalculate to update UI
+                    modalCanvas.value.requestRenderAll();
                 };
 
                 const addModalLine = () => {
