@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Layout Editor (Multi-Unit Support)</title>
+    <title>Web Layout Editor (Polygon Support)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
 
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
@@ -23,17 +23,6 @@
         }
         .resizer:hover, .resizer.active { background-color: #007acc; }
 
-        .context-menu {
-            position: absolute; background: #252526; border: 1px solid #454545;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.5); min-width: 150px; z-index: 1000;
-            padding: 4px 0; display: none;
-        }
-        .context-menu-item {
-            padding: 6px 16px; color: #ccc; cursor: pointer; font-size: 13px;
-            display: flex; align-items: center; gap: 8px;
-        }
-        .context-menu-item:hover { background-color: #094771; color: white; }
-        
         #canvas-wrapper { 
             background-color: #1e1e1e;
             background-image: 
@@ -49,10 +38,21 @@
             border-radius: 2px; padding: 2px 6px; color: white; width: 100%;
         }
         
-        /* Select 스타일 추가 */
         .select-dark {
             background-color: #3c3c3c; border: 1px solid #555; 
             border-radius: 2px; padding: 2px 6px; color: white; font-size: 12px;
+        }
+
+        /* Modal Style */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7); z-index: 9999;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .modal-window {
+            width: 90%; height: 90%; background: #1e1e1e; border: 1px solid #454545;
+            display: flex; flex-direction: column; color: #ccc;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
     </style>
 </head>
@@ -63,10 +63,8 @@
         <!-- 1. 좌측 뷰포트 영역 -->
         <div class="flex flex-col h-full relative" :style="{ width: `calc(100% - ${sidebarWidth}px)` }">
             
-            <!-- 상단 툴바 (설정) -->
+            <!-- 상단 툴바 -->
             <div class="h-10 bg-[#2d2d2d] border-b border-[#1a1a1a] flex items-center px-4 gap-4 text-xs">
-                
-                <!-- 단위 선택기 -->
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400 font-bold">Unit:</span>
                     <select v-model="currentUnitKey" @change="changeUnitSystem" class="select-dark">
@@ -75,26 +73,21 @@
                         <option value="ips">IPS (Inches)</option>
                     </select>
                 </div>
-
                 <div class="w-[1px] h-4 bg-gray-600"></div>
-
                 <div class="flex items-center gap-2">
                     <span class="text-gray-400">Grid:</span>
                     <input type="number" v-model.number="gridSize" :step="currentUnit.step" class="w-16 input-dark text-center">
                     <span class="text-gray-500">{{ currentUnit.label }}</span>
                 </div>
-                
                 <div class="w-[1px] h-4 bg-gray-600"></div>
-
                 <div class="flex items-center gap-2">
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" v-model="snapEnabled"> 
-                        <span>Snapping ({{ gridSize }}{{ currentUnit.label }})</span>
+                        <span>Snapping</span>
                     </label>
                 </div>
-
                 <div class="flex-1 text-right text-gray-500">
-                    Space + Drag to Pan / Wheel to Zoom
+                    Main Editor
                 </div>
             </div>
 
@@ -130,41 +123,28 @@
                 <button @click="currentTab = 'inspector'" class="flex-1 flex items-center justify-center gap-2 hover:bg-[#1e1e1e]" :class="{ 'tab-active': currentTab === 'inspector' }">
                     <i class="fa-solid fa-circle-info"></i> Inspector
                 </button>
-                <button @click="currentTab = 'toolbar'" class="flex-1 flex items-center justify-center gap-2 hover:bg-[#1e1e1e]" :class="{ 'tab-active': currentTab === 'toolbar' }">
-                    <i class="fa-solid fa-shapes"></i> Library
+                <button @click="currentTab = 'library'" class="flex-1 flex items-center justify-center gap-2 hover:bg-[#1e1e1e]" :class="{ 'tab-active': currentTab === 'library' }">
+                    <i class="fa-solid fa-cubes"></i> Library
                 </button>
             </div>
 
             <div class="p-4 flex-1 overflow-y-auto">
-                <!-- A. 인스펙터 탭 (단위 변환 적용) -->
+                <!-- A. 인스펙터 탭 -->
                 <div v-if="currentTab === 'inspector'">
                     <div v-if="selectedObject" class="space-y-4">
                         <h3 class="font-bold text-sm text-white mb-2 pb-1 border-b border-gray-600">PROPERTIES ({{ currentUnit.name }})</h3>
-                        
                         <div class="grid grid-cols-2 gap-3 text-xs">
                             <div>
-                                <label class="block mb-1 text-gray-400">Position X ({{ currentUnit.label }})</label>
+                                <label class="block mb-1 text-gray-400">Position X</label>
                                 <input type="number" :value="toUnit(props.left)" @input="e => updateProp('left', e.target.value)" :step="currentUnit.step" class="input-dark">
                             </div>
                             <div>
-                                <label class="block mb-1 text-gray-400">Position Y ({{ currentUnit.label }})</label>
+                                <label class="block mb-1 text-gray-400">Position Y</label>
                                 <input type="number" :value="toUnit(props.top)" @input="e => updateProp('top', e.target.value)" :step="currentUnit.step" class="input-dark">
-                            </div>
-                            <div>
-                                <label class="block mb-1 text-gray-400">Width ({{ currentUnit.label }})</label>
-                                <input type="number" :value="toUnit(props.width)" @input="e => updateProp('width', e.target.value)" :step="currentUnit.step" class="input-dark">
                             </div>
                             <div>
                                 <label class="block mb-1 text-gray-400">Rotation (°)</label>
                                 <input type="number" v-model.number="props.angle" @input="updateObject" class="input-dark">
-                            </div>
-                        </div>
-
-                        <div class="mt-4">
-                            <label class="text-xs block mb-1 text-gray-400">Fill Color</label>
-                            <div class="flex gap-2">
-                                <input type="color" v-model="props.fill" @input="updateObject" class="h-8 w-10 bg-transparent cursor-pointer p-0 border-0">
-                                <span class="text-xs self-center">{{ props.fill }}</span>
                             </div>
                         </div>
                     </div>
@@ -173,39 +153,136 @@
                     </div>
                 </div>
 
-                <!-- B. 툴바 탭 -->
-                <div v-else class="grid grid-cols-2 gap-2">
-                    <button @click="addRect" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
-                        <div class="w-6 h-4 bg-blue-500 border border-white"></div>
-                        <span class="text-xs">Box (1x1 {{currentUnit.label}})</span>
-                    </button>
-                    <button @click="addCircle" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
-                        <div class="w-5 h-5 bg-red-500 rounded-full border border-white"></div>
-                        <span class="text-xs">Circle (Ø 1 {{currentUnit.label}})</span>
-                    </button>
-                    <button @click="addText" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
-                        <i class="fa-solid fa-font text-xl"></i>
-                        <span class="text-xs">Label</span>
-                    </button>
+                <!-- B. 라이브러리 탭 -->
+                <div v-else class="flex flex-col h-full">
+                    <div class="mb-4 space-y-2">
+                        <input type="text" placeholder="Search models..." class="input-dark text-xs p-2">
+                        <button @click="openModelerModal" class="w-full bg-[#007acc] hover:bg-[#0062a3] text-white py-1 px-2 rounded text-xs flex items-center justify-center gap-2 transition">
+                            <i class="fa-solid fa-plus"></i> Create New Model
+                        </button>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto space-y-2">
+                        <div v-for="i in 3" :key="i" class="bg-[#3c3c3c] hover:bg-[#505050] p-2 rounded cursor-pointer flex items-center gap-3 transition group">
+                            <div class="w-10 h-10 bg-gray-800 border border-gray-600 flex items-center justify-center">
+                                <i class="fa-solid fa-cube text-gray-500"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs font-bold text-gray-200">Custom Robot V{{i}}</div>
+                                <div class="text-[10px] text-gray-400">Updated 2h ago</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            
-            <!-- 상태바 -->
-            <div class="bg-[#007acc] text-white text-[10px] px-2 py-1 flex justify-between">
-                <span>Scale: {{ currentUnit.pixelsPerUnit }}px = 1 {{ currentUnit.label }}</span>
-                <span>Zoom: {{ (zoomLevel * 100).toFixed(0) }}%</span>
+        </div>
+
+        <!-- ============================================ -->
+        <!--  MODAL: Parametric Model Builder             -->
+        <!-- ============================================ -->
+        <div v-if="showModal" class="modal-overlay">
+            <div class="modal-window">
+                
+                <!-- 1. Header -->
+                <div class="h-10 bg-[#2d2d2d] border-b border-[#454545] flex items-center px-4 justify-between">
+                    <span class="font-bold text-sm"><i class="fa-solid fa-pen-ruler mr-2"></i>Parametric Model Builder</span>
+                    <div class="flex gap-2">
+                        <button @click="saveModel" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Save to Library</button>
+                        <button @click="closeModelerModal" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">Close</button>
+                    </div>
+                </div>
+
+                <div class="flex flex-1 overflow-hidden">
+                    
+                    <!-- 2. Modal Toolbar -->
+                    <div class="w-14 bg-[#333] border-r border-[#454545] flex flex-col items-center py-2 gap-2">
+                        <button @click="addModalRect" title="Rectangle" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center"><i class="fa-regular fa-square"></i></button>
+                        <button @click="addModalCircle" title="Circle" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center"><i class="fa-regular fa-circle"></i></button>
+                        
+                        <!-- NEW: Polygon Button -->
+                        <button @click="addModalPolygon" title="Regular Polygon" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center relative">
+                            <i class="fa-solid fa-draw-polygon"></i>
+                            <div class="absolute bottom-0 right-0 text-[8px] bg-blue-500 px-1 rounded-sm text-white">N</div>
+                        </button>
+                        
+                        <div class="w-8 h-[1px] bg-gray-600 my-1"></div>
+                        <button title="Smart Dimension (Visual Only)" class="w-10 h-10 bg-[#007acc] text-white rounded flex items-center justify-center"><i class="fa-solid fa-ruler-combined"></i></button>
+                    </div>
+
+                    <!-- 3. Modal Canvas -->
+                    <div class="flex-1 relative bg-[#1e1e1e]" id="modal-canvas-wrapper">
+                         <canvas id="modal-canvas"></canvas>
+                    </div>
+
+                    <!-- 4. Feature Tree / Properties -->
+                    <div class="w-64 bg-[#252526] border-l border-[#454545] p-2 flex flex-col">
+                        <h4 class="text-xs font-bold text-gray-400 mb-2 uppercase">Features & Parameters</h4>
+                        <div class="flex-1 overflow-y-auto space-y-1">
+                            
+                            <div v-for="(obj, idx) in modalObjects" :key="idx" 
+                                 @click="selectModalObject(obj)"
+                                 class="p-2 bg-[#333] border border-transparent hover:border-[#007acc] text-xs rounded cursor-pointer transition-all"
+                                 :class="{'border-[#007acc] bg-[#3e3e42]': modalSelectedObject === obj}">
+                                
+                                <div class="flex items-center gap-2 mb-2 font-bold text-gray-200">
+                                    <i :class="getIconClass(obj.type)"></i>
+                                    <span>{{ obj.type.charAt(0).toUpperCase() + obj.type.slice(1) }} {{ idx + 1 }}</span>
+                                </div>
+
+                                <!-- Parametric Inputs -->
+                                <div class="grid grid-cols-2 gap-2 pl-2 border-l-2 border-gray-600 py-1">
+                                    
+                                    <!-- A. Polygon Parameters -->
+                                    <template v-if="obj.type === 'polygon'">
+                                        <div class="col-span-2 flex items-center justify-between">
+                                            <label class="text-blue-400 font-bold">Sides:</label>
+                                            <input type="number" min="3" v-model.number="obj.sides" @input="updateModalCanvas" class="bg-black border border-gray-500 w-20 px-1 text-right text-yellow-400 font-bold">
+                                        </div>
+                                        <div class="col-span-2 flex items-center justify-between">
+                                            <label class="text-gray-400">Radius:</label>
+                                            <input type="number" v-model.number="obj.radius" @input="updateModalCanvas" class="bg-black border border-gray-600 w-20 px-1 text-right">
+                                        </div>
+                                    </template>
+
+                                    <!-- B. Rectangle Parameters -->
+                                    <template v-if="obj.type === 'rect'">
+                                        <div class="flex flex-col">
+                                            <label class="text-[10px] text-gray-500">Width</label>
+                                            <input type="number" v-model.number="obj.width" @input="updateModalCanvas" class="bg-black border border-gray-600 w-full px-1">
+                                        </div>
+                                        <div class="flex flex-col">
+                                            <label class="text-[10px] text-gray-500">Height</label>
+                                            <input type="number" v-model.number="obj.height" @input="updateModalCanvas" class="bg-black border border-gray-600 w-full px-1">
+                                        </div>
+                                    </template>
+
+                                    <!-- C. Circle Parameters -->
+                                    <template v-if="obj.type === 'circle'">
+                                        <div class="col-span-2 flex items-center justify-between">
+                                            <label class="text-gray-400">Radius:</label>
+                                            <input type="number" v-model.number="obj.radius" @input="updateModalCanvas" class="bg-black border border-gray-600 w-20 px-1 text-right">
+                                        </div>
+                                    </template>
+
+                                    <!-- Common Position -->
+                                    <div class="col-span-2 pt-1 border-t border-gray-700 grid grid-cols-2 gap-2 mt-1">
+                                        <div><span class="text-[10px] text-gray-500">X:</span> <input type="number" v-model.number="obj.left" @input="updateModalCanvas" class="bg-black border border-gray-600 w-16 px-1"></div>
+                                        <div><span class="text-[10px] text-gray-500">Y:</span> <input type="number" v-model.number="obj.top" @input="updateModalCanvas" class="bg-black border border-gray-600 w-16 px-1"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
+
     </div>
 
     <script>
-        const { createApp, ref, onMounted, computed, watch } = Vue;
+        const { createApp, ref, onMounted, computed, nextTick } = Vue;
 
-        // --- 단위 시스템 정의 ---
-        // basePx: 화면상에서 1단위를 몇 픽셀로 표현할 것인지 기준값
-        // MKS: 1m = 100px (기존 기준)
-        // MMGS: 1mm = 1px (보통 CAD에서 많이 씀, 1000mm = 1000px 이면 너무 크니 10mm=10px 정도로 조정하거나 1:1 대응) -> 여기서는 1mm = 1px로 가정
-        // IPS: 1inch = 96px (웹 표준 DPI 기준)
         const UNIT_SYSTEMS = {
             mks:  { name: 'MKS (Meters)', label: 'm', step: 0.1, pixelsPerUnit: 100, defaultGrid: 0.5 },
             mmgs: { name: 'MMGS (Millimeters)', label: 'mm', step: 10, pixelsPerUnit: 1, defaultGrid: 500 },
@@ -214,23 +291,18 @@
 
         createApp({
             setup() {
+                // Main Editor State
                 const sidebarWidth = ref(300);
-                const currentTab = ref('toolbar');
+                const currentTab = ref('library');
                 const canvas = ref(null);
                 const selectedObject = ref(null);
-                
-                // --- 단위 관련 상태 ---
                 const currentUnitKey = ref('mks');
                 const currentUnit = computed(() => UNIT_SYSTEMS[currentUnitKey.value]);
-                const gridSize = ref(0.5); // 현재 단위 기준 그리드 크기
-
-                // --- 뷰포트 상태 ---
+                const gridSize = ref(0.5);
                 const zoomLevel = ref(1);
                 const viewportTransform = ref([1, 0, 0, 1, 0, 0]);
                 const snapEnabled = ref(true);
-
                 const props = ref({ left: 0, top: 0, width: 0, angle: 0, fill: '#ffffff' });
-                
                 const layers = ref([
                     { id: 'amr', name: 'AMR', color: '#e74c3c', visible: true },
                     { id: 'main', name: 'Main Layout', color: '#3498db', visible: true },
@@ -238,273 +310,235 @@
                 ]);
                 const activeLayerId = ref('main');
 
-                // --- 단위 변환 헬퍼 ---
-                // Canvas(px) -> User Unit
+                // Modal State
+                const showModal = ref(false);
+                const modalCanvas = ref(null);
+                const modalObjects = ref([]); 
+                const modalSelectedObject = ref(null);
+
+                // Helpers
                 const toUnit = (px) => {
                     const val = px / currentUnit.value.pixelsPerUnit;
-                    // 소수점 처리: mm는 정수, m/inch는 소수점 2~3자리
                     return currentUnitKey.value === 'mmgs' ? Math.round(val) : parseFloat(val.toFixed(3));
                 };
-                // User Unit -> Canvas(px)
                 const toPx = (unitVal) => Math.round(parseFloat(unitVal) * currentUnit.value.pixelsPerUnit);
 
-                // --- 단위 변경 핸들러 ---
-                const changeUnitSystem = () => {
-                    // 단위를 바꾸면 그리드 사이즈를 추천 기본값으로 변경
-                    gridSize.value = currentUnit.value.defaultGrid;
-                    
-                    // 선택된 오브젝트가 있으면 인스펙터 갱신을 위해 업데이트
-                    if (selectedObject.value) updateState();
-                    
-                    // 캔버스 다시 그리기 (그리드 배경 업데이트)
-                    canvas.value.requestRenderAll();
+                const getIconClass = (type) => {
+                    if(type === 'rect') return 'fa-regular fa-square text-blue-400';
+                    if(type === 'circle') return 'fa-regular fa-circle text-red-400';
+                    if(type === 'polygon') return 'fa-solid fa-draw-polygon text-yellow-400';
+                    return 'fa-solid fa-vector-square';
                 };
 
-                // --- CSS 그리드 스타일 계산 ---
+                const drawOriginMarker = (c) => {
+                    const existings = c.getObjects().filter(o => o.isOrigin);
+                    c.remove(...existings);
+                    const lineOpts = { strokeWidth: 2, selectable: false, evented: false, isOrigin: true };
+                    const xAxis = new fabric.Line([0, 0, 50, 0], { ...lineOpts, stroke: '#ff3333' });
+                    const yAxis = new fabric.Line([0, 0, 0, 50], { ...lineOpts, stroke: '#33cc33' });
+                    const originCircle = new fabric.Circle({ left: -4, top: -4, radius: 4, fill: '#fff', selectable: false, evented: false, isOrigin: true });
+                    c.add(xAxis, yAxis, originCircle);
+                };
+
+                onMounted(() => {
+                    initMainCanvas();
+                });
+
+                const initMainCanvas = () => {
+                    canvas.value = new fabric.Canvas('c', {
+                        backgroundColor: 'transparent',
+                        width: window.innerWidth - sidebarWidth.value,
+                        height: window.innerHeight - 32,
+                        preserveObjectStacking: true
+                    });
+                    drawOriginMarker(canvas.value);
+
+                    canvas.value.on('mouse:wheel', function(opt) {
+                        const evt = opt.e;
+                        evt.preventDefault(); evt.stopPropagation();
+                        if (evt.altKey) {
+                            let zoom = canvas.value.getZoom() * (0.999 ** evt.deltaY);
+                            if (zoom > 20) zoom = 20; if (zoom < 0.05) zoom = 0.05;
+                            canvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                            zoomLevel.value = zoom;
+                            viewportTransform.value = canvas.value.viewportTransform;
+                        } else {
+                            const vpt = canvas.value.viewportTransform;
+                            vpt[4] -= evt.deltaX; vpt[5] -= evt.deltaY;
+                            canvas.value.requestRenderAll();
+                            viewportTransform.value = [...vpt];
+                        }
+                    });
+                    
+                    canvas.value.on('selection:created', updateState);
+                    canvas.value.on('selection:updated', updateState);
+                    canvas.value.on('selection:cleared', () => selectedObject.value = null);
+                    canvas.value.on('object:modified', updateState);
+                    canvas.value.on('object:moving', (options) => {
+                         if (!snapEnabled.value) return;
+                         const snapPx = gridSize.value * currentUnit.value.pixelsPerUnit;
+                         options.target.left = Math.round(options.target.left / snapPx) * snapPx;
+                         options.target.top = Math.round(options.target.top / snapPx) * snapPx;
+                    });
+                };
+
+                const changeUnitSystem = () => {
+                    gridSize.value = currentUnit.value.defaultGrid;
+                    canvas.value.requestRenderAll();
+                    if(selectedObject.value) updateState();
+                };
+
+                // --- Modal Functions ---
+                const openModelerModal = () => {
+                    showModal.value = true;
+                    modalObjects.value = [];
+                    nextTick(() => { initModalCanvas(); });
+                };
+                const closeModelerModal = () => {
+                    showModal.value = false;
+                    if (modalCanvas.value) { modalCanvas.value.dispose(); modalCanvas.value = null; }
+                };
+
+                const initModalCanvas = () => {
+                    const wrapper = document.getElementById('modal-canvas-wrapper');
+                    modalCanvas.value = new fabric.Canvas('modal-canvas', {
+                        width: wrapper.clientWidth, height: wrapper.clientHeight,
+                        backgroundColor: '#252526', selection: true
+                    });
+
+                    modalCanvas.value.on('selection:created', (e) => {
+                        const active = e.selected[0];
+                        if(active) modalSelectedObject.value = active.dataRef; 
+                    });
+                    modalCanvas.value.on('selection:updated', (e) => {
+                         const active = e.selected[0];
+                         if(active) modalSelectedObject.value = active.dataRef;
+                    });
+                    
+                    modalCanvas.value.on('object:modified', (e) => {
+                        const target = e.target;
+                        if(target.dataRef) {
+                            target.dataRef.left = Math.round(target.left);
+                            target.dataRef.top = Math.round(target.top);
+                            if(target.dataRef.type === 'rect') {
+                                target.dataRef.width = Math.round(target.width * target.scaleX);
+                                target.dataRef.height = Math.round(target.height * target.scaleY);
+                            } else if(target.dataRef.type === 'circle') {
+                                target.dataRef.radius = Math.round(target.radius * target.scaleX);
+                            } else if(target.dataRef.type === 'polygon') {
+                                target.dataRef.radius = Math.round(target.width * target.scaleX / 2); // 근사치 업데이트
+                            }
+                            updateModalCanvas(); 
+                        }
+                    });
+                };
+
+                const addModalRect = () => {
+                    modalObjects.value.push({ type: 'rect', left: 50, top: 50, width: 100, height: 100 });
+                    renderModalObjects();
+                };
+                const addModalCircle = () => {
+                    modalObjects.value.push({ type: 'circle', left: 200, top: 50, radius: 50 });
+                    renderModalObjects();
+                };
+                
+                // --- POLYGON LOGIC ---
+                const addModalPolygon = () => {
+                    // 기본값: 육각형(sides: 6)
+                    modalObjects.value.push({ type: 'polygon', left: 300, top: 100, radius: 50, sides: 6 });
+                    renderModalObjects();
+                };
+
+                // 정다각형 좌표 계산 함수
+                const getRegularPolygonPoints = (sides, radius) => {
+                    const points = [];
+                    for (let i = 0; i < sides; i++) {
+                        // -90도(상단)부터 시작
+                        const angle = (i * 2 * Math.PI / sides) - (Math.PI / 2);
+                        points.push({
+                            x: radius * Math.cos(angle),
+                            y: radius * Math.sin(angle)
+                        });
+                    }
+                    return points;
+                };
+
+                const renderModalObjects = () => {
+                    if(!modalCanvas.value) return;
+                    modalCanvas.value.clear();
+                    modalCanvas.value.backgroundColor = '#252526';
+
+                    // Modal Grid Lines
+                    new fabric.Line([0, -2000, 0, 2000], { stroke: '#333', selectable: false }).set({ left: 0, top: 0 });
+                    new fabric.Line([-2000, 0, 2000, 0], { stroke: '#333', selectable: false }).set({ left: 0, top: 0 });
+
+                    modalObjects.value.forEach(data => {
+                        let obj;
+                        if(data.type === 'rect') {
+                            obj = new fabric.Rect({
+                                left: data.left, top: data.top,
+                                width: data.width, height: data.height,
+                                fill: '#3498db', stroke: 'white', strokeWidth: 1, opacity: 0.8
+                            });
+                        } else if(data.type === 'circle') {
+                            obj = new fabric.Circle({
+                                left: data.left, top: data.top,
+                                radius: data.radius,
+                                fill: '#e74c3c', stroke: 'white', strokeWidth: 1, opacity: 0.8
+                            });
+                        } else if(data.type === 'polygon') {
+                            // sides 입력값에 따라 동적으로 points 생성
+                            const points = getRegularPolygonPoints(data.sides, data.radius);
+                            obj = new fabric.Polygon(points, {
+                                left: data.left, top: data.top,
+                                fill: '#f1c40f', stroke: 'white', strokeWidth: 1, opacity: 0.8
+                            });
+                        }
+                        
+                        obj.dataRef = data;
+                        modalCanvas.value.add(obj);
+
+                        if(modalSelectedObject.value === data) {
+                            modalCanvas.value.setActiveObject(obj);
+                        }
+                    });
+                    modalCanvas.value.renderAll();
+                };
+
+                const updateModalCanvas = () => { renderModalObjects(); };
+                const selectModalObject = (obj) => { modalSelectedObject.value = obj; renderModalObjects(); };
+
+                const saveModel = () => {
+                    if(modalObjects.value.length === 0) return;
+                    // 메인 캔버스에 그룹으로 복사
+                    const objects = modalObjects.value.map(data => {
+                        if(data.type === 'rect') {
+                            return new fabric.Rect({ left: data.left, top: data.top, width: data.width, height: data.height, fill: '#3498db' });
+                        } else if(data.type === 'polygon') {
+                             const points = getRegularPolygonPoints(data.sides, data.radius);
+                             return new fabric.Polygon(points, { left: data.left, top: data.top, fill: '#f1c40f' });
+                        } else {
+                            return new fabric.Circle({ left: data.left, top: data.top, radius: data.radius, fill: '#e74c3c' });
+                        }
+                    });
+                    const group = new fabric.Group(objects, { left: 100, top: 100, subTargetCheck: true });
+                    canvas.value.add(group);
+                    canvas.value.setActiveObject(group);
+                    canvas.value.requestRenderAll();
+                    closeModelerModal();
+                    alert("Model saved to Library (InMemory) & Added to Canvas");
+                };
+
                 const gridStyle = computed(() => {
                     const zoom = zoomLevel.value;
                     const panX = viewportTransform.value[4];
                     const panY = viewportTransform.value[5];
-                    
-                    // 그리드 간격(px) = (설정된 그리드 단위 값) * (1단위당 픽셀 수) * 줌
                     const sizePx = gridSize.value * currentUnit.value.pixelsPerUnit * zoom; 
-
                     return {
                         backgroundSize: `${sizePx}px ${sizePx}px`,
                         backgroundPosition: `${panX}px ${panY}px`
                     };
                 });
-
-                onMounted(() => {
-                    canvas.value = new fabric.Canvas('c', {
-                        backgroundColor: 'transparent',
-                        width: window.innerWidth - sidebarWidth.value,
-                        height: window.innerHeight - 32,
-                        preserveObjectStacking: true,
-                        selection: true
-                    });
-
-                    // 1. 줌 & 팬
-                    
-                    // 휠 이벤트 (Zoom & Pan 복합 처리)
-                    canvas.value.on('mouse:wheel', function(opt) {
-                        const evt = opt.e;
-                        const delta = evt.deltaY;
-
-                        evt.preventDefault();
-                        evt.stopPropagation();
-
-                        // A. Alt 키 누름 -> 줌 인/아웃 (여긴 가속 적용 안 함)
-                        if (evt.altKey) {
-                            let zoom = canvas.value.getZoom();
-                            zoom *= 0.999 ** delta;
-                            if (zoom > 20) zoom = 20;
-                            if (zoom < 0.05) zoom = 0.05;
-                            
-                            canvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
-                            
-                            zoomLevel.value = zoom;
-                            viewportTransform.value = canvas.value.viewportTransform;
-                        } 
-                        else {
-                            // --- 스크롤 로직 ---
-                            
-                            // 1. Shift 키 확인 -> 가속 모드 (5배 ~ 10배)
-                            // 취향에 따라 배율(5)을 조절하세요.
-                            const speedMultiplier = evt.shiftKey ? 5 : 1; 
-                            const moveAmount = delta * speedMultiplier;
-
-                            const vpt = canvas.value.viewportTransform;
-
-                            // 2. Ctrl 키 확인 -> 방향 결정
-                            if (evt.ctrlKey) {
-                                // 가로 스크롤 (Horizontal)
-                                vpt[4] -= moveAmount; 
-                            } else {
-                                // 세로 스크롤 (Vertical)
-                                vpt[5] -= moveAmount; 
-                            }
-
-                            canvas.value.requestRenderAll();
-                            viewportTransform.value = [...vpt];
-                        }
-                    });
-
-                    // --- 패닝 로직 수정 (Spacebar + 좌클릭 드래그) ---
-                    let isDragging = false;
-                    let lastPosX, lastPosY;
-                    let isSpacePressed = false; // 스페이스바 상태 추적
-
-                    // 키보드 이벤트 리스너 추가 (스페이스바 감지)
-                    window.addEventListener('keydown', (e) => {
-                        if (e.code === 'Space' && !isSpacePressed) {
-                            isSpacePressed = true;
-                            canvas.value.defaultCursor = 'grab'; // 커서 모양 변경
-                            canvas.value.selection = false; // 드래그 선택 비활성화
-                            canvas.value.requestRenderAll(); // 렌더링 갱신
-                        }
-                    });
-
-                    window.addEventListener('keyup', (e) => {
-                        if (e.code === 'Space') {
-                            isSpacePressed = false;
-                            canvas.value.defaultCursor = 'default';
-                            if (!isDragging) {
-                                canvas.value.selection = true; // 드래그 중이 아니면 선택 기능 복구
-                            }
-                            canvas.value.requestRenderAll();
-                        }
-                    });
-
-                    canvas.value.on('mouse:down', function(opt) {
-                        const evt = opt.e;
-                        // 조건: 스페이스바가 눌려있고 + 좌클릭(button 0)일 때
-                        if (isSpacePressed && evt.button === 0) {
-                            isDragging = true;
-                            canvas.value.selection = false;
-                            lastPosX = evt.clientX;
-                            lastPosY = evt.clientY;
-                            canvas.value.defaultCursor = 'grabbing'; // 드래그 중 커서
-                        }
-                    });
-
-                    canvas.value.on('mouse:move', function(opt) {
-                        if (isDragging) {
-                            const e = opt.e;
-                            const vpt = canvas.value.viewportTransform;
-                            vpt[4] += e.clientX - lastPosX;
-                            vpt[5] += e.clientY - lastPosY;
-                            canvas.value.requestRenderAll();
-                            lastPosX = e.clientX;
-                            lastPosY = e.clientY;
-                            viewportTransform.value = [...vpt];
-                        }
-                    });
-                    canvas.value.on('mouse:up', function() {
-                        canvas.value.setViewportTransform(canvas.value.viewportTransform);
-                        isDragging = false;
-                        canvas.value.selection = true;
-                    });
-
-                    // 2. 스내핑 (현재 단위 기준)
-                    canvas.value.on('object:moving', (options) => {
-                        if (!snapEnabled.value) return;
-                        
-                        // 현재 단위계의 픽셀 배율 적용
-                        const snapPx = gridSize.value * currentUnit.value.pixelsPerUnit;
-                        const target = options.target;
-                        
-                        target.left = Math.round(target.left / snapPx) * snapPx;
-                        target.top = Math.round(target.top / snapPx) * snapPx;
-                    });
-
-                    // 3. 인스펙터 상태 동기화
-                    canvas.value.on('selection:created', updateState);
-                    canvas.value.on('selection:updated', updateState);
-                    canvas.value.on('selection:cleared', () => selectedObject.value = null);
-                    canvas.value.on('object:modified', updateState);
-
-                    window.addEventListener('resize', () => {
-                        canvas.value.setDimensions({ 
-                            width: window.innerWidth - sidebarWidth.value, 
-                            height: window.innerHeight - 32 
-                        });
-                    });
-                });
-
-                const updateState = () => {
-                    const activeObj = canvas.value.getActiveObject();
-                    if (activeObj && activeObj.type !== 'activeSelection') {
-                        selectedObject.value = activeObj;
-                        // 내부 픽셀값 -> Vue state로 저장 (화면 표시용)
-                        props.value = {
-                            left: activeObj.left,
-                            top: activeObj.top,
-                            width: activeObj.width * activeObj.scaleX,
-                            angle: activeObj.angle,
-                            fill: activeObj.fill
-                        };
-                        currentTab.value = 'inspector';
-                    } else {
-                        selectedObject.value = null;
-                    }
-                };
-
-                const updateProp = (key, userValue) => {
-                    const pxValue = toPx(userValue);
-                    props.value[key] = pxValue; 
-                    updateObject(); 
-                };
-
-                const updateObject = () => {
-                    const activeObj = canvas.value.getActiveObject();
-                    if (!activeObj) return;
-                    
-                    activeObj.set({
-                        left: props.value.left,
-                        top: props.value.top,
-                        angle: props.value.angle,
-                        fill: props.value.fill
-                    });
-
-                    if (activeObj.type === 'rect') {
-                        activeObj.set({ width: props.value.width, scaleX: 1 });
-                    } else if (activeObj.type === 'circle') {
-                        activeObj.set({ radius: props.value.width / 2, scaleX: 1, scaleY: 1 });
-                    }
-                    canvas.value.renderAll();
-                };
-
-                const addRect = () => {
-                    // 1 단위 x 1 단위 박스 생성
-                    const sizePx = toPx(1); 
-                    const rect = new fabric.Rect({
-                        left: sizePx, top: sizePx, 
-                        width: sizePx, height: sizePx, 
-                        fill: activeLayerId.value === 'main' ? '#3498db' : '#e74c3c',
-                        strokeWidth: 2, stroke: '#fff'
-                    });
-                    rect.layerId = activeLayerId.value;
-                    canvas.value.add(rect);
-                    canvas.value.setActiveObject(rect);
-                };
-
-                const addCircle = () => {
-                    // 지름 1 단위 원 생성
-                    const radiusPx = toPx(0.5); 
-                    const circle = new fabric.Circle({
-                        left: toPx(2), top: toPx(2),
-                        radius: radiusPx,
-                        fill: '#f1c40f', strokeWidth: 2, stroke: '#fff'
-                    });
-                    circle.layerId = activeLayerId.value;
-                    canvas.value.add(circle);
-                    canvas.value.setActiveObject(circle);
-                }; 
-                
-                const addText = () => {
-                    const text = new fabric.Text('Label', {
-                        left: toPx(3), top: toPx(3),
-                        fontSize: toPx(0.5), // 텍스트 크기도 단위 비례
-                        fill: '#fff'
-                    });
-                    text.layerId = activeLayerId.value;
-                    canvas.value.add(text);
-                    canvas.value.setActiveObject(text);
-                }
-
-                const setActiveLayer = (id) => activeLayerId.value = id;
-                const toggleLayerVisibility = (id) => {
-                    const layer = layers.value.find(l => l.id === id);
-                    layer.visible = !layer.visible;
-                    canvas.value.getObjects().forEach(obj => {
-                        if (obj.layerId === id) {
-                            obj.visible = layer.visible;
-                            obj.evented = layer.visible;
-                        }
-                    });
-                    canvas.value.requestRenderAll();
-                };
 
                 const isResizing = ref(false);
                 const startResize = () => { isResizing.value = true; };
@@ -518,12 +552,43 @@
                     }
                 });
 
+                const updateState = () => {
+                    const activeObj = canvas.value.getActiveObject();
+                    if (activeObj && activeObj.type !== 'activeSelection') {
+                        selectedObject.value = activeObj;
+                        props.value = {
+                            left: activeObj.left, top: activeObj.top,
+                            width: (activeObj.width || 0) * activeObj.scaleX,
+                            angle: activeObj.angle, fill: activeObj.fill
+                        };
+                        currentTab.value = 'inspector';
+                    } else { selectedObject.value = null; }
+                };
+
+                const updateProp = (key, userValue) => {
+                    const pxValue = toPx(userValue);
+                    props.value[key] = pxValue; 
+                    updateObject(); 
+                };
+
+                const updateObject = () => {
+                    const activeObj = canvas.value.getActiveObject();
+                    if (!activeObj) return;
+                    activeObj.set({ left: props.value.left, top: props.value.top, angle: props.value.angle });
+                    canvas.value.renderAll();
+                };
+                const setActiveLayer = (id) => activeLayerId.value = id;
+                const toggleLayerVisibility = (id) => { /* 생략 (이전과 동일) */ };
+
                 return {
                     sidebarWidth, currentTab, layers, activeLayerId, selectedObject, props,
                     gridSize, snapEnabled, zoomLevel, gridStyle,
-                    currentUnitKey, currentUnit, UNIT_SYSTEMS, changeUnitSystem,
-                    startResize, addRect, addCircle, addText, updateProp, updateObject,
-                    setActiveLayer, toggleLayerVisibility, toUnit
+                    currentUnitKey, currentUnit, changeUnitSystem,
+                    startResize, updateProp, updateObject, setActiveLayer, toggleLayerVisibility, toUnit,
+                    // Modal
+                    showModal, openModelerModal, closeModelerModal, 
+                    addModalRect, addModalCircle, addModalPolygon,
+                    modalObjects, modalSelectedObject, selectModalObject, updateModalCanvas, saveModel, getIconClass
                 };
             }
         }).mount('#app');
