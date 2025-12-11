@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Layout Editor (Multi-Unit Support)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #2d2d2d; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+        
+        .resizer {
+            width: 5px; cursor: col-resize; background-color: #333;
+            border-left: 1px solid #1a1a1a; border-right: 1px solid #1a1a1a;
+            z-index: 10;
+        }
+        .resizer:hover, .resizer.active { background-color: #007acc; }
+
+        .context-menu {
+            position: absolute; background: #252526; border: 1px solid #454545;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.5); min-width: 150px; z-index: 1000;
+            padding: 4px 0; display: none;
+        }
+        .context-menu-item {
+            padding: 6px 16px; color: #ccc; cursor: pointer; font-size: 13px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .context-menu-item:hover { background-color: #094771; color: white; }
+        
+        #canvas-wrapper { 
+            background-color: #1e1e1e;
+            background-image: 
+                linear-gradient(#333 1px, transparent 1px),
+                linear-gradient(90deg, #333 1px, transparent 1px);
+        }
+
+        .tab-active { background-color: #1e1e1e !important; border-top: 2px solid #007acc !important; color: white !important; }
+        .layer-tab-active { background-color: #3e3e42 !important; font-weight: bold; border-bottom: 2px solid #ffcc00; }
+        
+        .input-dark {
+            background-color: #3c3c3c; border: 1px solid #555; 
+            border-radius: 2px; padding: 2px 6px; color: white; width: 100%;
+        }
+        
+        /* Select 스타일 추가 */
+        .select-dark {
+            background-color: #3c3c3c; border: 1px solid #555; 
+            border-radius: 2px; padding: 2px 6px; color: white; font-size: 12px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-300 select-none">
+
+    <div id="app" class="flex h-full w-full">
+        
+        <!-- 1. 좌측 뷰포트 영역 -->
+        <div class="flex flex-col h-full relative" :style="{ width: `calc(100% - ${sidebarWidth}px)` }">
+            
+            <!-- 상단 툴바 (설정) -->
+            <div class="h-10 bg-[#2d2d2d] border-b border-[#1a1a1a] flex items-center px-4 gap-4 text-xs">
+                
+                <!-- 단위 선택기 -->
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 font-bold">Unit:</span>
+                    <select v-model="currentUnitKey" @change="changeUnitSystem" class="select-dark">
+                        <option value="mks">MKS (Meters)</option>
+                        <option value="mmgs">MMGS (Millimeters)</option>
+                        <option value="ips">IPS (Inches)</option>
+                    </select>
+                </div>
+
+                <div class="w-[1px] h-4 bg-gray-600"></div>
+
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400">Grid:</span>
+                    <input type="number" v-model.number="gridSize" :step="currentUnit.step" class="w-16 input-dark text-center">
+                    <span class="text-gray-500">{{ currentUnit.label }}</span>
+                </div>
+                
+                <div class="w-[1px] h-4 bg-gray-600"></div>
+
+                <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" v-model="snapEnabled"> 
+                        <span>Snapping ({{ gridSize }}{{ currentUnit.label }})</span>
+                    </label>
+                </div>
+
+                <div class="flex-1 text-right text-gray-500">
+                    Space + Drag to Pan / Wheel to Zoom
+                </div>
+            </div>
+
+            <!-- 캔버스 영역 -->
+            <div id="canvas-wrapper" class="flex-1 relative overflow-hidden" 
+                 :style="gridStyle"
+                 @contextmenu.prevent>
+                <canvas id="c"></canvas>
+            </div>
+
+            <!-- 하단 레이어 탭 -->
+            <div class="h-8 bg-[#2d2d2d] flex items-center border-t border-[#1a1a1a] px-2 text-xs overflow-x-auto">
+                <div v-for="layer in layers" :key="layer.id"
+                     @click="setActiveLayer(layer.id)"
+                     class="px-4 h-full flex items-center cursor-pointer hover:bg-[#3e3e42] gap-2 transition-colors whitespace-nowrap"
+                     :class="{ 'layer-tab-active': activeLayerId === layer.id, 'opacity-50': !layer.visible }"
+                     :style="{ borderLeft: `4px solid ${layer.color}` }">
+                    <span>{{ layer.name }}</span>
+                    <i class="fa-solid fa-eye ml-2 hover:text-white" 
+                       :class="layer.visible ? 'text-gray-400' : 'text-gray-600'"
+                       @click.stop="toggleLayerVisibility(layer.id)"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 리사이저 핸들 -->
+        <div class="resizer" @mousedown="startResize"></div>
+
+        <!-- 3. 우측 툴바 & 인스펙터 -->
+        <div class="bg-[#252526] flex flex-col border-l border-black" :style="{ width: `${sidebarWidth}px` }">
+            
+            <div class="flex h-9 bg-[#2d2d2d] text-xs">
+                <button @click="currentTab = 'inspector'" class="flex-1 flex items-center justify-center gap-2 hover:bg-[#1e1e1e]" :class="{ 'tab-active': currentTab === 'inspector' }">
+                    <i class="fa-solid fa-circle-info"></i> Inspector
+                </button>
+                <button @click="currentTab = 'toolbar'" class="flex-1 flex items-center justify-center gap-2 hover:bg-[#1e1e1e]" :class="{ 'tab-active': currentTab === 'toolbar' }">
+                    <i class="fa-solid fa-shapes"></i> Library
+                </button>
+            </div>
+
+            <div class="p-4 flex-1 overflow-y-auto">
+                <!-- A. 인스펙터 탭 (단위 변환 적용) -->
+                <div v-if="currentTab === 'inspector'">
+                    <div v-if="selectedObject" class="space-y-4">
+                        <h3 class="font-bold text-sm text-white mb-2 pb-1 border-b border-gray-600">PROPERTIES ({{ currentUnit.name }})</h3>
+                        
+                        <div class="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                                <label class="block mb-1 text-gray-400">Position X ({{ currentUnit.label }})</label>
+                                <input type="number" :value="toUnit(props.left)" @input="e => updateProp('left', e.target.value)" :step="currentUnit.step" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-gray-400">Position Y ({{ currentUnit.label }})</label>
+                                <input type="number" :value="toUnit(props.top)" @input="e => updateProp('top', e.target.value)" :step="currentUnit.step" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-gray-400">Width ({{ currentUnit.label }})</label>
+                                <input type="number" :value="toUnit(props.width)" @input="e => updateProp('width', e.target.value)" :step="currentUnit.step" class="input-dark">
+                            </div>
+                            <div>
+                                <label class="block mb-1 text-gray-400">Rotation (°)</label>
+                                <input type="number" v-model.number="props.angle" @input="updateObject" class="input-dark">
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <label class="text-xs block mb-1 text-gray-400">Fill Color</label>
+                            <div class="flex gap-2">
+                                <input type="color" v-model="props.fill" @input="updateObject" class="h-8 w-10 bg-transparent cursor-pointer p-0 border-0">
+                                <span class="text-xs self-center">{{ props.fill }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="text-center text-gray-500 text-sm mt-10">
+                        <p>No object selected</p>
+                    </div>
+                </div>
+
+                <!-- B. 툴바 탭 -->
+                <div v-else class="grid grid-cols-2 gap-2">
+                    <button @click="addRect" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
+                        <div class="w-6 h-4 bg-blue-500 border border-white"></div>
+                        <span class="text-xs">Box (1x1 {{currentUnit.label}})</span>
+                    </button>
+                    <button @click="addCircle" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
+                        <div class="w-5 h-5 bg-red-500 rounded-full border border-white"></div>
+                        <span class="text-xs">Circle (Ø 1 {{currentUnit.label}})</span>
+                    </button>
+                    <button @click="addText" class="bg-[#3c3c3c] hover:bg-[#505050] p-3 rounded flex flex-col items-center gap-2 transition">
+                        <i class="fa-solid fa-font text-xl"></i>
+                        <span class="text-xs">Label</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 상태바 -->
+            <div class="bg-[#007acc] text-white text-[10px] px-2 py-1 flex justify-between">
+                <span>Scale: {{ currentUnit.pixelsPerUnit }}px = 1 {{ currentUnit.label }}</span>
+                <span>Zoom: {{ (zoomLevel * 100).toFixed(0) }}%</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, computed, watch } = Vue;
+
+        // --- 단위 시스템 정의 ---
+        // basePx: 화면상에서 1단위를 몇 픽셀로 표현할 것인지 기준값
+        // MKS: 1m = 100px (기존 기준)
+        // MMGS: 1mm = 1px (보통 CAD에서 많이 씀, 1000mm = 1000px 이면 너무 크니 10mm=10px 정도로 조정하거나 1:1 대응) -> 여기서는 1mm = 1px로 가정
+        // IPS: 1inch = 96px (웹 표준 DPI 기준)
+        const UNIT_SYSTEMS = {
+            mks:  { name: 'MKS (Meters)', label: 'm', step: 0.1, pixelsPerUnit: 100, defaultGrid: 0.5 },
+            mmgs: { name: 'MMGS (Millimeters)', label: 'mm', step: 10, pixelsPerUnit: 1, defaultGrid: 500 },
+            ips:  { name: 'IPS (Inches)', label: 'in', step: 1, pixelsPerUnit: 96, defaultGrid: 20 }
+        };
+
+        createApp({
+            setup() {
+                const sidebarWidth = ref(300);
+                const currentTab = ref('toolbar');
+                const canvas = ref(null);
+                const selectedObject = ref(null);
+                
+                // --- 단위 관련 상태 ---
+                const currentUnitKey = ref('mks');
+                const currentUnit = computed(() => UNIT_SYSTEMS[currentUnitKey.value]);
+                const gridSize = ref(0.5); // 현재 단위 기준 그리드 크기
+
+                // --- 뷰포트 상태 ---
+                const zoomLevel = ref(1);
+                const viewportTransform = ref([1, 0, 0, 1, 0, 0]);
+                const snapEnabled = ref(true);
+
+                const props = ref({ left: 0, top: 0, width: 0, angle: 0, fill: '#ffffff' });
+                
+                const layers = ref([
+                    { id: 'amr', name: 'AMR', color: '#e74c3c', visible: true },
+                    { id: 'main', name: 'Main Layout', color: '#3498db', visible: true },
+                    { id: 'bg', name: 'Background', color: '#9b59b6', visible: true }
+                ]);
+                const activeLayerId = ref('main');
+
+                // --- 단위 변환 헬퍼 ---
+                // Canvas(px) -> User Unit
+                const toUnit = (px) => {
+                    const val = px / currentUnit.value.pixelsPerUnit;
+                    // 소수점 처리: mm는 정수, m/inch는 소수점 2~3자리
+                    return currentUnitKey.value === 'mmgs' ? Math.round(val) : parseFloat(val.toFixed(3));
+                };
+                // User Unit -> Canvas(px)
+                const toPx = (unitVal) => Math.round(parseFloat(unitVal) * currentUnit.value.pixelsPerUnit);
+
+                // --- 단위 변경 핸들러 ---
+                const changeUnitSystem = () => {
+                    // 단위를 바꾸면 그리드 사이즈를 추천 기본값으로 변경
+                    gridSize.value = currentUnit.value.defaultGrid;
+                    
+                    // 선택된 오브젝트가 있으면 인스펙터 갱신을 위해 업데이트
+                    if (selectedObject.value) updateState();
+                    
+                    // 캔버스 다시 그리기 (그리드 배경 업데이트)
+                    canvas.value.requestRenderAll();
+                };
+
+                // --- CSS 그리드 스타일 계산 ---
+                const gridStyle = computed(() => {
+                    const zoom = zoomLevel.value;
+                    const panX = viewportTransform.value[4];
+                    const panY = viewportTransform.value[5];
+                    
+                    // 그리드 간격(px) = (설정된 그리드 단위 값) * (1단위당 픽셀 수) * 줌
+                    const sizePx = gridSize.value * currentUnit.value.pixelsPerUnit * zoom; 
+
+                    return {
+                        backgroundSize: `${sizePx}px ${sizePx}px`,
+                        backgroundPosition: `${panX}px ${panY}px`
+                    };
+                });
+
+                onMounted(() => {
+                    canvas.value = new fabric.Canvas('c', {
+                        backgroundColor: 'transparent',
+                        width: window.innerWidth - sidebarWidth.value,
+                        height: window.innerHeight - 32,
+                        preserveObjectStacking: true,
+                        selection: true
+                    });
+
+                    // 1. 줌 & 팬
+                    
+                    // 휠 이벤트 (Zoom & Pan 복합 처리)
+                    canvas.value.on('mouse:wheel', function(opt) {
+                        const evt = opt.e;
+                        const delta = evt.deltaY;
+
+                        evt.preventDefault();
+                        evt.stopPropagation();
+
+                        // A. Alt 키 누름 -> 줌 인/아웃 (여긴 가속 적용 안 함)
+                        if (evt.altKey) {
+                            let zoom = canvas.value.getZoom();
+                            zoom *= 0.999 ** delta;
+                            if (zoom > 20) zoom = 20;
+                            if (zoom < 0.05) zoom = 0.05;
+                            
+                            canvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                            
+                            zoomLevel.value = zoom;
+                            viewportTransform.value = canvas.value.viewportTransform;
+                        } 
+                        else {
+                            // --- 스크롤 로직 ---
+                            
+                            // 1. Shift 키 확인 -> 가속 모드 (5배 ~ 10배)
+                            // 취향에 따라 배율(5)을 조절하세요.
+                            const speedMultiplier = evt.shiftKey ? 5 : 1; 
+                            const moveAmount = delta * speedMultiplier;
+
+                            const vpt = canvas.value.viewportTransform;
+
+                            // 2. Ctrl 키 확인 -> 방향 결정
+                            if (evt.ctrlKey) {
+                                // 가로 스크롤 (Horizontal)
+                                vpt[4] -= moveAmount; 
+                            } else {
+                                // 세로 스크롤 (Vertical)
+                                vpt[5] -= moveAmount; 
+                            }
+
+                            canvas.value.requestRenderAll();
+                            viewportTransform.value = [...vpt];
+                        }
+                    });
+
+                    // --- 패닝 로직 수정 (Spacebar + 좌클릭 드래그) ---
+                    let isDragging = false;
+                    let lastPosX, lastPosY;
+                    let isSpacePressed = false; // 스페이스바 상태 추적
+
+                    // 키보드 이벤트 리스너 추가 (스페이스바 감지)
+                    window.addEventListener('keydown', (e) => {
+                        if (e.code === 'Space' && !isSpacePressed) {
+                            isSpacePressed = true;
+                            canvas.value.defaultCursor = 'grab'; // 커서 모양 변경
+                            canvas.value.selection = false; // 드래그 선택 비활성화
+                            canvas.value.requestRenderAll(); // 렌더링 갱신
+                        }
+                    });
+
+                    window.addEventListener('keyup', (e) => {
+                        if (e.code === 'Space') {
+                            isSpacePressed = false;
+                            canvas.value.defaultCursor = 'default';
+                            if (!isDragging) {
+                                canvas.value.selection = true; // 드래그 중이 아니면 선택 기능 복구
+                            }
+                            canvas.value.requestRenderAll();
+                        }
+                    });
+
+                    canvas.value.on('mouse:down', function(opt) {
+                        const evt = opt.e;
+                        // 조건: 스페이스바가 눌려있고 + 좌클릭(button 0)일 때
+                        if (isSpacePressed && evt.button === 0) {
+                            isDragging = true;
+                            canvas.value.selection = false;
+                            lastPosX = evt.clientX;
+                            lastPosY = evt.clientY;
+                            canvas.value.defaultCursor = 'grabbing'; // 드래그 중 커서
+                        }
+                    });
+
+                    canvas.value.on('mouse:move', function(opt) {
+                        if (isDragging) {
+                            const e = opt.e;
+                            const vpt = canvas.value.viewportTransform;
+                            vpt[4] += e.clientX - lastPosX;
+                            vpt[5] += e.clientY - lastPosY;
+                            canvas.value.requestRenderAll();
+                            lastPosX = e.clientX;
+                            lastPosY = e.clientY;
+                            viewportTransform.value = [...vpt];
+                        }
+                    });
+                    canvas.value.on('mouse:up', function() {
+                        canvas.value.setViewportTransform(canvas.value.viewportTransform);
+                        isDragging = false;
+                        canvas.value.selection = true;
+                    });
+
+                    // 2. 스내핑 (현재 단위 기준)
+                    canvas.value.on('object:moving', (options) => {
+                        if (!snapEnabled.value) return;
+                        
+                        // 현재 단위계의 픽셀 배율 적용
+                        const snapPx = gridSize.value * currentUnit.value.pixelsPerUnit;
+                        const target = options.target;
+                        
+                        target.left = Math.round(target.left / snapPx) * snapPx;
+                        target.top = Math.round(target.top / snapPx) * snapPx;
+                    });
+
+                    // 3. 인스펙터 상태 동기화
+                    canvas.value.on('selection:created', updateState);
+                    canvas.value.on('selection:updated', updateState);
+                    canvas.value.on('selection:cleared', () => selectedObject.value = null);
+                    canvas.value.on('object:modified', updateState);
+
+                    window.addEventListener('resize', () => {
+                        canvas.value.setDimensions({ 
+                            width: window.innerWidth - sidebarWidth.value, 
+                            height: window.innerHeight - 32 
+                        });
+                    });
+                });
+
+                const updateState = () => {
+                    const activeObj = canvas.value.getActiveObject();
+                    if (activeObj && activeObj.type !== 'activeSelection') {
+                        selectedObject.value = activeObj;
+                        // 내부 픽셀값 -> Vue state로 저장 (화면 표시용)
+                        props.value = {
+                            left: activeObj.left,
+                            top: activeObj.top,
+                            width: activeObj.width * activeObj.scaleX,
+                            angle: activeObj.angle,
+                            fill: activeObj.fill
+                        };
+                        currentTab.value = 'inspector';
+                    } else {
+                        selectedObject.value = null;
+                    }
+                };
+
+                const updateProp = (key, userValue) => {
+                    const pxValue = toPx(userValue);
+                    props.value[key] = pxValue; 
+                    updateObject(); 
+                };
+
+                const updateObject = () => {
+                    const activeObj = canvas.value.getActiveObject();
+                    if (!activeObj) return;
+                    
+                    activeObj.set({
+                        left: props.value.left,
+                        top: props.value.top,
+                        angle: props.value.angle,
+                        fill: props.value.fill
+                    });
+
+                    if (activeObj.type === 'rect') {
+                        activeObj.set({ width: props.value.width, scaleX: 1 });
+                    } else if (activeObj.type === 'circle') {
+                        activeObj.set({ radius: props.value.width / 2, scaleX: 1, scaleY: 1 });
+                    }
+                    canvas.value.renderAll();
+                };
+
+                const addRect = () => {
+                    // 1 단위 x 1 단위 박스 생성
+                    const sizePx = toPx(1); 
+                    const rect = new fabric.Rect({
+                        left: sizePx, top: sizePx, 
+                        width: sizePx, height: sizePx, 
+                        fill: activeLayerId.value === 'main' ? '#3498db' : '#e74c3c',
+                        strokeWidth: 2, stroke: '#fff'
+                    });
+                    rect.layerId = activeLayerId.value;
+                    canvas.value.add(rect);
+                    canvas.value.setActiveObject(rect);
+                };
+
+                const addCircle = () => {
+                    // 지름 1 단위 원 생성
+                    const radiusPx = toPx(0.5); 
+                    const circle = new fabric.Circle({
+                        left: toPx(2), top: toPx(2),
+                        radius: radiusPx,
+                        fill: '#f1c40f', strokeWidth: 2, stroke: '#fff'
+                    });
+                    circle.layerId = activeLayerId.value;
+                    canvas.value.add(circle);
+                    canvas.value.setActiveObject(circle);
+                }; 
+                
+                const addText = () => {
+                    const text = new fabric.Text('Label', {
+                        left: toPx(3), top: toPx(3),
+                        fontSize: toPx(0.5), // 텍스트 크기도 단위 비례
+                        fill: '#fff'
+                    });
+                    text.layerId = activeLayerId.value;
+                    canvas.value.add(text);
+                    canvas.value.setActiveObject(text);
+                }
+
+                const setActiveLayer = (id) => activeLayerId.value = id;
+                const toggleLayerVisibility = (id) => {
+                    const layer = layers.value.find(l => l.id === id);
+                    layer.visible = !layer.visible;
+                    canvas.value.getObjects().forEach(obj => {
+                        if (obj.layerId === id) {
+                            obj.visible = layer.visible;
+                            obj.evented = layer.visible;
+                        }
+                    });
+                    canvas.value.requestRenderAll();
+                };
+
+                const isResizing = ref(false);
+                const startResize = () => { isResizing.value = true; };
+                window.addEventListener('mousemove', (e) => {
+                    if (isResizing.value) sidebarWidth.value = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
+                });
+                window.addEventListener('mouseup', () => {
+                    if(isResizing.value) {
+                        isResizing.value = false;
+                        canvas.value.setDimensions({ width: window.innerWidth - sidebarWidth.value, height: window.innerHeight - 32 });
+                    }
+                });
+
+                return {
+                    sidebarWidth, currentTab, layers, activeLayerId, selectedObject, props,
+                    gridSize, snapEnabled, zoomLevel, gridStyle,
+                    currentUnitKey, currentUnit, UNIT_SYSTEMS, changeUnitSystem,
+                    startResize, addRect, addCircle, addText, updateProp, updateObject,
+                    setActiveLayer, toggleLayerVisibility, toUnit
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
