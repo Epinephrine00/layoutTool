@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Layout Editor (Polygon Support)</title>
+    <title>Advanced Parametric Editor (Fixed & Merging)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -86,8 +86,9 @@
                         <span>Snapping</span>
                     </label>
                 </div>
-                <div class="flex-1 text-right text-gray-500">
-                    Main Editor
+                <div class="flex-1 text-right text-gray-500 flex items-center justify-end gap-2">
+                    <span class="text-[10px] bg-gray-700 px-2 rounded">Space+Drag to Pan</span>
+                    <span>Main Editor</span>
                 </div>
             </div>
 
@@ -132,7 +133,7 @@
                 <!-- A. 인스펙터 탭 -->
                 <div v-if="currentTab === 'inspector'">
                     <div v-if="selectedObject" class="space-y-4">
-                        <h3 class="font-bold text-sm text-white mb-2 pb-1 border-b border-gray-600">PROPERTIES ({{ currentUnit.name }})</h3>
+                        <h3 class="font-bold text-sm text-white mb-2 pb-1 border-b border-gray-600">PROPERTIES</h3>
                         <div class="grid grid-cols-2 gap-3 text-xs">
                             <div>
                                 <label class="block mb-1 text-gray-400">Position X</label>
@@ -157,37 +158,30 @@
                 <div v-else class="flex flex-col h-full">
                     <div class="mb-4 space-y-2">
                         <input type="text" placeholder="Search models..." class="input-dark text-xs p-2">
-                        <button @click="openModelerModal" class="w-full bg-[#007acc] hover:bg-[#0062a3] text-white py-1 px-2 rounded text-xs flex items-center justify-center gap-2 transition">
-                            <i class="fa-solid fa-plus"></i> Create New Model
+                        <button @click="openModelerModal" class="w-full bg-[#007acc] hover:bg-[#0062a3] text-white py-2 px-2 rounded text-xs flex items-center justify-center gap-2 transition font-bold">
+                            <i class="fa-solid fa-pen-ruler"></i> Open Geometry Editor
                         </button>
                     </div>
-
                     <div class="flex-1 overflow-y-auto space-y-2">
-                        <div v-for="i in 3" :key="i" class="bg-[#3c3c3c] hover:bg-[#505050] p-2 rounded cursor-pointer flex items-center gap-3 transition group">
-                            <div class="w-10 h-10 bg-gray-800 border border-gray-600 flex items-center justify-center">
-                                <i class="fa-solid fa-cube text-gray-500"></i>
-                            </div>
-                            <div class="flex-1">
-                                <div class="text-xs font-bold text-gray-200">Custom Robot V{{i}}</div>
-                                <div class="text-[10px] text-gray-400">Updated 2h ago</div>
-                            </div>
-                        </div>
+                         <div class="text-[10px] text-gray-500 p-2">
+                             Use the Geometry Editor to create shapes with automatic constraints and fill.
+                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- ============================================ -->
-        <!--  MODAL: Parametric Model Builder             -->
+        <!--  MODAL: Graph-Based Geometry Builder         -->
         <!-- ============================================ -->
         <div v-if="showModal" class="modal-overlay">
             <div class="modal-window">
                 
                 <!-- 1. Header -->
                 <div class="h-10 bg-[#2d2d2d] border-b border-[#454545] flex items-center px-4 justify-between">
-                    <span class="font-bold text-sm"><i class="fa-solid fa-pen-ruler mr-2"></i>Parametric Model Builder</span>
+                    <span class="font-bold text-sm"><i class="fa-solid fa-bezier-curve mr-2"></i>Geometry Editor</span>
                     <div class="flex gap-2">
-                        <button @click="saveModel" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Save to Library</button>
+                        <button @click="saveModel" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Save as Group</button>
                         <button @click="closeModelerModal" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">Close</button>
                     </div>
                 </div>
@@ -196,82 +190,76 @@
                     
                     <!-- 2. Modal Toolbar -->
                     <div class="w-14 bg-[#333] border-r border-[#454545] flex flex-col items-center py-2 gap-2">
-                        <button @click="addModalRect" title="Rectangle" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center"><i class="fa-regular fa-square"></i></button>
-                        <button @click="addModalCircle" title="Circle" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center"><i class="fa-regular fa-circle"></i></button>
-                        
-                        <!-- NEW: Polygon Button -->
-                        <button @click="addModalPolygon" title="Regular Polygon" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center relative">
-                            <i class="fa-solid fa-draw-polygon"></i>
-                            <div class="absolute bottom-0 right-0 text-[8px] bg-blue-500 px-1 rounded-sm text-white">N</div>
+                        <button @click="addModalLine" title="Add Line Segment" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center">
+                            <i class="fa-solid fa-slash transform -rotate-45"></i>
                         </button>
-                        
                         <div class="w-8 h-[1px] bg-gray-600 my-1"></div>
-                        <button title="Smart Dimension (Visual Only)" class="w-10 h-10 bg-[#007acc] text-white rounded flex items-center justify-center"><i class="fa-solid fa-ruler-combined"></i></button>
+                        <button @click="addModalRectGraph" title="Rectangle (4 Lines)" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center relative">
+                            <i class="fa-regular fa-square"></i>
+                        </button>
+                        <button @click="addModalPolygonGraph" title="Polygon (N Lines)" class="w-10 h-10 hover:bg-[#505050] rounded flex items-center justify-center relative">
+                            <i class="fa-solid fa-draw-polygon"></i>
+                        </button>
+                        <div class="w-8 h-[1px] bg-gray-600 my-1"></div>
+                        <div class="text-[9px] text-gray-500 text-center px-1">Auto Fill</div>
+                        <div :class="autoFill ? 'bg-green-500' : 'bg-gray-600'" class="w-3 h-3 rounded-full transition-colors cursor-pointer" @click="autoFill = !autoFill; detectAndFillLoops()"></div>
                     </div>
 
                     <!-- 3. Modal Canvas -->
                     <div class="flex-1 relative bg-[#1e1e1e]" id="modal-canvas-wrapper">
                          <canvas id="modal-canvas"></canvas>
+                         <div class="absolute top-2 left-2 text-xs text-gray-500 pointer-events-none">
+                             * <b>Space + Drag</b> to Pan<br>
+                             * Drag Points to Snap & Merge<br>
+                         </div>
                     </div>
 
-                    <!-- 4. Feature Tree / Properties -->
+                    <!-- 4. Graph Properties -->
                     <div class="w-64 bg-[#252526] border-l border-[#454545] p-2 flex flex-col">
-                        <h4 class="text-xs font-bold text-gray-400 mb-2 uppercase">Features & Parameters</h4>
-                        <div class="flex-1 overflow-y-auto space-y-1">
-                            
-                            <div v-for="(obj, idx) in modalObjects" :key="idx" 
-                                 @click="selectModalObject(obj)"
-                                 class="p-2 bg-[#333] border border-transparent hover:border-[#007acc] text-xs rounded cursor-pointer transition-all"
-                                 :class="{'border-[#007acc] bg-[#3e3e42]': modalSelectedObject === obj}">
-                                
-                                <div class="flex items-center gap-2 mb-2 font-bold text-gray-200">
-                                    <i :class="getIconClass(obj.type)"></i>
-                                    <span>{{ obj.type.charAt(0).toUpperCase() + obj.type.slice(1) }} {{ idx + 1 }}</span>
-                                </div>
-
-                                <!-- Parametric Inputs -->
-                                <div class="grid grid-cols-2 gap-2 pl-2 border-l-2 border-gray-600 py-1">
-                                    
-                                    <!-- A. Polygon Parameters -->
-                                    <template v-if="obj.type === 'polygon'">
-                                        <div class="col-span-2 flex items-center justify-between">
-                                            <label class="text-blue-400 font-bold">Sides:</label>
-                                            <input type="number" min="3" v-model.number="obj.sides" @input="updateModalCanvas" class="bg-black border border-gray-500 w-20 px-1 text-right text-yellow-400 font-bold">
-                                        </div>
-                                        <div class="col-span-2 flex items-center justify-between">
-                                            <label class="text-gray-400">Radius:</label>
-                                            <input type="number" v-model.number="obj.radius" @input="updateModalCanvas" class="bg-black border border-gray-600 w-20 px-1 text-right">
-                                        </div>
-                                    </template>
-
-                                    <!-- B. Rectangle Parameters -->
-                                    <template v-if="obj.type === 'rect'">
-                                        <div class="flex flex-col">
-                                            <label class="text-[10px] text-gray-500">Width</label>
-                                            <input type="number" v-model.number="obj.width" @input="updateModalCanvas" class="bg-black border border-gray-600 w-full px-1">
-                                        </div>
-                                        <div class="flex flex-col">
-                                            <label class="text-[10px] text-gray-500">Height</label>
-                                            <input type="number" v-model.number="obj.height" @input="updateModalCanvas" class="bg-black border border-gray-600 w-full px-1">
-                                        </div>
-                                    </template>
-
-                                    <!-- C. Circle Parameters -->
-                                    <template v-if="obj.type === 'circle'">
-                                        <div class="col-span-2 flex items-center justify-between">
-                                            <label class="text-gray-400">Radius:</label>
-                                            <input type="number" v-model.number="obj.radius" @input="updateModalCanvas" class="bg-black border border-gray-600 w-20 px-1 text-right">
-                                        </div>
-                                    </template>
-
-                                    <!-- Common Position -->
-                                    <div class="col-span-2 pt-1 border-t border-gray-700 grid grid-cols-2 gap-2 mt-1">
-                                        <div><span class="text-[10px] text-gray-500">X:</span> <input type="number" v-model.number="obj.left" @input="updateModalCanvas" class="bg-black border border-gray-600 w-16 px-1"></div>
-                                        <div><span class="text-[10px] text-gray-500">Y:</span> <input type="number" v-model.number="obj.top" @input="updateModalCanvas" class="bg-black border border-gray-600 w-16 px-1"></div>
+                        <h4 class="text-xs font-bold text-gray-400 mb-2 uppercase">Geometry Parameters</h4>
+                        
+                        <div class="flex-1 overflow-y-auto">
+                            <div v-if="modalSelectedObject">
+                                <div class="p-2 bg-[#333] rounded mb-3 border border-blue-500">
+                                    <div class="flex items-center gap-2 mb-2 font-bold text-white border-b border-gray-600 pb-1">
+                                        <i :class="modalSelectedType === 'vertex' ? 'fa-solid fa-circle text-red-400' : 'fa-solid fa-slash text-yellow-400'"></i>
+                                        <span>{{ modalSelectedType.toUpperCase() }}</span>
                                     </div>
+
+                                    <!-- Vertex Properties -->
+                                    <template v-if="modalSelectedType === 'vertex'">
+                                        <div class="grid grid-cols-2 gap-2 text-xs">
+                                            <div>
+                                                <label class="text-gray-500">X</label>
+                                                <input type="number" v-model.number="modalSelectedObject.left" @input="onVertexInput" class="input-dark">
+                                            </div>
+                                            <div>
+                                                <label class="text-gray-500">Y</label>
+                                                <input type="number" v-model.number="modalSelectedObject.top" @input="onVertexInput" class="input-dark">
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Edge Properties -->
+                                    <template v-if="modalSelectedType === 'edge'">
+                                        <div class="space-y-3 text-xs">
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="text-gray-500 block mb-1">Length</label>
+                                                    <input type="number" v-model.number="edgeProps.length" @change="updateEdgeFromParam('length')" class="input-dark text-yellow-300 font-bold">
+                                                </div>
+                                                <div>
+                                                    <label class="text-gray-500 block mb-1">Angle (°)</label>
+                                                    <input type="number" v-model.number="edgeProps.angle" @change="updateEdgeFromParam('angle')" class="input-dark text-yellow-300 font-bold">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
-
+                            <div v-else class="text-center text-xs text-gray-500 mt-10">
+                                Select a Point or Line<br>to edit properties
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -281,7 +269,7 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted, computed, nextTick } = Vue;
+        const { createApp, ref, onMounted, computed, nextTick, watch } = Vue;
 
         const UNIT_SYSTEMS = {
             mks:  { name: 'MKS (Meters)', label: 'm', step: 0.1, pixelsPerUnit: 100, defaultGrid: 0.5 },
@@ -310,11 +298,21 @@
                 ]);
                 const activeLayerId = ref('main');
 
-                // Modal State
+                // Modal State (Graph Based)
                 const showModal = ref(false);
                 const modalCanvas = ref(null);
-                const modalObjects = ref([]); 
                 const modalSelectedObject = ref(null);
+                const modalSelectedType = ref(null); 
+                const edgeProps = ref({ length: 0, angle: 0 });
+                const autoFill = ref(true);
+
+                // Graph Data
+                let vertices = []; 
+                let edges = [];    
+                let fillObject = null;
+                
+                // Helper Constants
+                const SNAP_DIST = 10;
 
                 // Helpers
                 const toUnit = (px) => {
@@ -323,77 +321,142 @@
                 };
                 const toPx = (unitVal) => Math.round(parseFloat(unitVal) * currentUnit.value.pixelsPerUnit);
 
-                const getIconClass = (type) => {
-                    if(type === 'rect') return 'fa-regular fa-square text-blue-400';
-                    if(type === 'circle') return 'fa-regular fa-circle text-red-400';
-                    if(type === 'polygon') return 'fa-solid fa-draw-polygon text-yellow-400';
-                    return 'fa-solid fa-vector-square';
-                };
+                onMounted(() => { initMainCanvas(); });
 
-                const drawOriginMarker = (c) => {
-                    const existings = c.getObjects().filter(o => o.isOrigin);
-                    c.remove(...existings);
-                    const lineOpts = { strokeWidth: 2, selectable: false, evented: false, isOrigin: true };
-                    const xAxis = new fabric.Line([0, 0, 50, 0], { ...lineOpts, stroke: '#ff3333' });
-                    const yAxis = new fabric.Line([0, 0, 0, 50], { ...lineOpts, stroke: '#33cc33' });
-                    const originCircle = new fabric.Circle({ left: -4, top: -4, radius: 4, fill: '#fff', selectable: false, evented: false, isOrigin: true });
-                    c.add(xAxis, yAxis, originCircle);
-                };
-
-                onMounted(() => {
-                    initMainCanvas();
-                });
-
+                // --- 1. Fixed Panning Logic (Main Canvas) ---
                 const initMainCanvas = () => {
                     canvas.value = new fabric.Canvas('c', {
                         backgroundColor: 'transparent',
                         width: window.innerWidth - sidebarWidth.value,
                         height: window.innerHeight - 32,
-                        preserveObjectStacking: true
+                        preserveObjectStacking: true,
+                        selection: true
                     });
-                    drawOriginMarker(canvas.value);
+                    
+                    // Grid & Origin
+                    const lineOpts = { strokeWidth: 2, selectable: false, evented: false, isOrigin: true };
+                    canvas.value.add(new fabric.Line([0, 0, 50, 0], { ...lineOpts, stroke: '#ff3333' }));
+                    canvas.value.add(new fabric.Line([0, 0, 0, 50], { ...lineOpts, stroke: '#33cc33' }));
 
+                    // Zoom with Wheel
                     canvas.value.on('mouse:wheel', function(opt) {
                         const evt = opt.e;
-                        evt.preventDefault(); evt.stopPropagation();
+                        const delta = evt.deltaY;
+
+                        evt.preventDefault();
+                        evt.stopPropagation();
+
+                        // A. Alt 키 누름 -> 줌 인/아웃 (여긴 가속 적용 안 함)
                         if (evt.altKey) {
-                            let zoom = canvas.value.getZoom() * (0.999 ** evt.deltaY);
-                            if (zoom > 20) zoom = 20; if (zoom < 0.05) zoom = 0.05;
+                            let zoom = canvas.value.getZoom();
+                            zoom *= 0.999 ** delta;
+                            if (zoom > 20) zoom = 20;
+                            if (zoom < 0.05) zoom = 0.05;
+                            
                             canvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                            
                             zoomLevel.value = zoom;
                             viewportTransform.value = canvas.value.viewportTransform;
-                        } else {
+                        } 
+                        else {
+                            // --- 스크롤 로직 ---
+                            
+                            // 1. Shift 키 확인 -> 가속 모드 (5배 ~ 10배)
+                            // 취향에 따라 배율(5)을 조절하세요.
+                            const speedMultiplier = evt.shiftKey ? 5 : 1; 
+                            const moveAmount = delta * speedMultiplier;
+
                             const vpt = canvas.value.viewportTransform;
-                            vpt[4] -= evt.deltaX; vpt[5] -= evt.deltaY;
+
+                            // 2. Ctrl 키 확인 -> 방향 결정
+                            if (evt.ctrlKey) {
+                                // 가로 스크롤 (Horizontal)
+                                vpt[4] -= moveAmount; 
+                            } else {
+                                // 세로 스크롤 (Vertical)
+                                vpt[5] -= moveAmount; 
+                            }
+
                             canvas.value.requestRenderAll();
                             viewportTransform.value = [...vpt];
                         }
                     });
-                    
+
+                    // --- 패닝 로직 수정 (Spacebar + 좌클릭 드래그) ---
+                    let isDragging = false;
+                    let lastPosX, lastPosY;
+                    let isSpacePressed = false; // 스페이스바 상태 추적
+
+                    // 키보드 이벤트 리스너 추가 (스페이스바 감지)
+                    window.addEventListener('keydown', (e) => {
+                        if (e.code === 'Space' && !isSpacePressed) {
+                            isSpacePressed = true;
+                            canvas.value.defaultCursor = 'grab'; // 커서 모양 변경
+                            canvas.value.selection = false; // 드래그 선택 비활성화
+                            canvas.value.requestRenderAll(); // 렌더링 갱신
+                        }
+                    });
+
+                    window.addEventListener('keyup', (e) => {
+                        if (e.code === 'Space') {
+                            isSpacePressed = false;
+                            canvas.value.defaultCursor = 'default';
+                            if (!isDragging) {
+                                canvas.value.selection = true; // 드래그 중이 아니면 선택 기능 복구
+                            }
+                            canvas.value.requestRenderAll();
+                        }
+                    });
+
+                    canvas.value.on('mouse:down', function(opt) {
+                        const evt = opt.e;
+                        // 조건: 스페이스바가 눌려있고 + 좌클릭(button 0)일 때
+                        if (isSpacePressed && evt.button === 0) {
+                            isDragging = true;
+                            canvas.value.selection = false;
+                            lastPosX = evt.clientX;
+                            lastPosY = evt.clientY;
+                            canvas.value.defaultCursor = 'grabbing'; // 드래그 중 커서
+                        }
+                    });
+
+                    canvas.value.on('mouse:move', function(opt) {
+                        if (isDragging) {
+                            const e = opt.e;
+                            const vpt = canvas.value.viewportTransform;
+                            vpt[4] += e.clientX - lastPosX;
+                            vpt[5] += e.clientY - lastPosY;
+                            canvas.value.requestRenderAll();
+                            lastPosX = e.clientX;
+                            lastPosY = e.clientY;
+                            viewportTransform.value = [...vpt];
+                        }
+                    });
+                    canvas.value.on('mouse:up', function() {
+                        canvas.value.setViewportTransform(canvas.value.viewportTransform);
+                        isDragging = false;
+                        canvas.value.selection = true;
+                    });
+
+                    // Other Events
                     canvas.value.on('selection:created', updateState);
                     canvas.value.on('selection:updated', updateState);
                     canvas.value.on('selection:cleared', () => selectedObject.value = null);
                     canvas.value.on('object:modified', updateState);
-                    canvas.value.on('object:moving', (options) => {
-                         if (!snapEnabled.value) return;
-                         const snapPx = gridSize.value * currentUnit.value.pixelsPerUnit;
-                         options.target.left = Math.round(options.target.left / snapPx) * snapPx;
-                         options.target.top = Math.round(options.target.top / snapPx) * snapPx;
-                    });
                 };
 
                 const changeUnitSystem = () => {
                     gridSize.value = currentUnit.value.defaultGrid;
                     canvas.value.requestRenderAll();
-                    if(selectedObject.value) updateState();
                 };
 
-                // --- Modal Functions ---
+                // --- Modal Functions (Graph Based) ---
                 const openModelerModal = () => {
                     showModal.value = true;
-                    modalObjects.value = [];
+                    vertices = []; edges = []; fillObject = null;
                     nextTick(() => { initModalCanvas(); });
                 };
+
                 const closeModelerModal = () => {
                     showModal.value = false;
                     if (modalCanvas.value) { modalCanvas.value.dispose(); modalCanvas.value = null; }
@@ -403,192 +466,372 @@
                     const wrapper = document.getElementById('modal-canvas-wrapper');
                     modalCanvas.value = new fabric.Canvas('modal-canvas', {
                         width: wrapper.clientWidth, height: wrapper.clientHeight,
-                        backgroundColor: '#252526', selection: true
+                        backgroundColor: '#252526', selection: false
                     });
 
-                    modalCanvas.value.on('selection:created', (e) => {
-                        const active = e.selected[0];
-                        if(active) modalSelectedObject.value = active.dataRef; 
+                    // Background Grid
+                    const gridLineOpts = { stroke: '#333', selectable: false, evented: false };
+                    for(let i=-2000; i<=2000; i+=50) {
+                        modalCanvas.value.add(new fabric.Line([i, -2000, i, 2000], gridLineOpts));
+                        modalCanvas.value.add(new fabric.Line([-2000, i, 2000, i], gridLineOpts));
+                    }
+
+                    // Panning for Modal
+                    let isModalDragging = false;
+                    let lastMX = 0, lastMY = 0;
+                    modalCanvas.value.on('mouse:down', function(opt) {
+                        if (opt.e.code === 'Space' || opt.e.button === 1) {
+                            isModalDragging = true;
+                            modalCanvas.value.selection = false;
+                            lastMX = opt.e.clientX;
+                            lastMY = opt.e.clientY;
+                            modalCanvas.value.defaultCursor = 'grabbing';
+                        }
                     });
-                    modalCanvas.value.on('selection:updated', (e) => {
-                         const active = e.selected[0];
-                         if(active) modalSelectedObject.value = active.dataRef;
+                    modalCanvas.value.on('mouse:move', function(opt) {
+                        if (isModalDragging) {
+                            const vpt = modalCanvas.value.viewportTransform;
+                            vpt[4] += opt.e.clientX - lastMX;
+                            vpt[5] += opt.e.clientY - lastMY;
+                            modalCanvas.value.requestRenderAll();
+                            lastMX = opt.e.clientX;
+                            lastMY = opt.e.clientY;
+                        }
+                    });
+                    modalCanvas.value.on('mouse:up', () => { 
+                        isModalDragging = false; 
+                        modalCanvas.value.defaultCursor = 'default';
+                        modalCanvas.value.selection = false; // Keep false to force explicit click
+                    });
+                    modalCanvas.value.on('mouse:wheel', function(opt) {
+                        const evt = opt.e;
+                        evt.preventDefault(); evt.stopPropagation();
+                        let zoom = modalCanvas.value.getZoom() * (0.999 ** evt.deltaY);
+                        if (zoom > 5) zoom = 5; if (zoom < 0.2) zoom = 0.2;
+                        modalCanvas.value.zoomToPoint({ x: evt.offsetX, y: evt.offsetY }, zoom);
+                    });
+
+
+                    // Object Events
+                    modalCanvas.value.on('object:moving', (e) => {
+                        const target = e.target;
+                        if (target.type === 'circle') { // Vertex
+                            handleVertexDrag(target);
+                        }
+                    });
+
+                    modalCanvas.value.on('object:modified', (e) => {
+                         if (e.target.type === 'circle') {
+                             handleVertexDrop(e.target); // Merge Logic
+                         }
+                    });
+
+                    modalCanvas.value.on('selection:created', onModalSelection);
+                    modalCanvas.value.on('selection:updated', onModalSelection);
+                    modalCanvas.value.on('selection:cleared', () => {
+                        modalSelectedObject.value = null; modalSelectedType.value = null;
+                    });
+                };
+
+                const onModalSelection = (e) => {
+                    const target = e.selected[0];
+                    if (!target) return;
+                    modalSelectedObject.value = target;
+                    if (target.type === 'circle') modalSelectedType.value = 'vertex';
+                    else if (target.type === 'line') {
+                        modalSelectedType.value = 'edge';
+                        calculateEdgeProps(target);
+                    }
+                };
+
+                // --- 2. Vertex Snapping & Merging ---
+                
+                const handleVertexDrag = (vertex) => {
+                    // Update connected edges first for visual
+                    updateConnectedEdges(vertex);
+                    
+                    // Snapping Logic
+                    vertex.set('fill', '#e74c3c'); // Default Red
+                    vertex.snapTarget = null;
+                    
+                    for(let v of vertices) {
+                        if (v === vertex) continue;
+                        const dist = Math.hypot(v.left - vertex.left, v.top - vertex.top);
+                        if (dist < SNAP_DIST) {
+                            // Snap visually
+                            vertex.left = v.left;
+                            vertex.top = v.top;
+                            vertex.set('fill', '#2ecc71'); // Green when snapped
+                            vertex.snapTarget = v;
+                            break;
+                        }
+                    }
+                    // Re-update edges to snapped position
+                    updateConnectedEdges(vertex);
+                    detectAndFillLoops();
+                };
+
+                const handleVertexDrop = (vertex) => {
+                    if (vertex.snapTarget) {
+                        // MERGE
+                        mergeVertices(vertex, vertex.snapTarget);
+                    }
+                    detectAndFillLoops();
+                };
+
+                const mergeVertices = (sourceV, targetV) => {
+                    // Redirect all edges from sourceV to targetV
+                    edges.forEach(e => {
+                        if (e.v1 === sourceV) e.v1 = targetV;
+                        if (e.v2 === sourceV) e.v2 = targetV;
                     });
                     
-                    modalCanvas.value.on('object:modified', (e) => {
-                        const target = e.target;
-                        if(target.dataRef) {
-                            target.dataRef.left = Math.round(target.left);
-                            target.dataRef.top = Math.round(target.top);
-                            if(target.dataRef.type === 'rect') {
-                                target.dataRef.width = Math.round(target.width * target.scaleX);
-                                target.dataRef.height = Math.round(target.height * target.scaleY);
-                            } else if(target.dataRef.type === 'circle') {
-                                target.dataRef.radius = Math.round(target.radius * target.scaleX);
-                            } else if(target.dataRef.type === 'polygon') {
-                                target.dataRef.radius = Math.round(target.width * target.scaleX / 2); // 근사치 업데이트
-                            }
-                            updateModalCanvas(); 
+                    // Remove sourceV
+                    modalCanvas.value.remove(sourceV);
+                    vertices = vertices.filter(v => v !== sourceV);
+                    
+                    // Cleanup self-loops (optional, if user made line start=end)
+                    edges = edges.filter(e => {
+                        if(e.v1 === e.v2) {
+                            modalCanvas.value.remove(e);
+                            return false;
                         }
+                        return true;
                     });
+
+                    // Update UI
+                    updateConnectedEdges(targetV);
+                    if(modalSelectedObject.value === sourceV) {
+                        modalSelectedObject.value = null;
+                    }
                 };
 
-                const addModalRect = () => {
-                    modalObjects.value.push({ type: 'rect', left: 50, top: 50, width: 100, height: 100 });
-                    renderModalObjects();
-                };
-                const addModalCircle = () => {
-                    modalObjects.value.push({ type: 'circle', left: 200, top: 50, radius: 50 });
-                    renderModalObjects();
-                };
+                // --- 3. Improved Dynamic Fill (DFS Cycle Detection) ---
                 
-                // --- POLYGON LOGIC ---
-                const addModalPolygon = () => {
-                    // 기본값: 육각형(sides: 6)
-                    modalObjects.value.push({ type: 'polygon', left: 300, top: 100, radius: 50, sides: 6 });
-                    renderModalObjects();
-                };
+                const detectAndFillLoops = () => {
+                    if (!autoFill.value) return;
+                    if (fillObject) {
+                        modalCanvas.value.remove(fillObject);
+                        fillObject = null;
+                    }
+                    if (vertices.length < 3) return;
 
-                // 정다각형 좌표 계산 함수
-                const getRegularPolygonPoints = (sides, radius) => {
-                    const points = [];
-                    for (let i = 0; i < sides; i++) {
-                        // -90도(상단)부터 시작
-                        const angle = (i * 2 * Math.PI / sides) - (Math.PI / 2);
-                        points.push({
-                            x: radius * Math.cos(angle),
-                            y: radius * Math.sin(angle)
+                    // 1. Build Graph
+                    const adj = new Map();
+                    vertices.forEach(v => adj.set(v.id, []));
+                    edges.forEach(e => {
+                        adj.get(e.v1.id).push(e.v2.id);
+                        adj.get(e.v2.id).push(e.v1.id);
+                    });
+
+                    // 2. DFS for Cycle
+                    const visited = new Set();
+                    const path = [];
+                    let cycleFound = null;
+
+                    const findCycle = (currId, parentId) => {
+                        visited.add(currId);
+                        path.push(currId);
+
+                        const neighbors = adj.get(currId);
+                        for(let neighborId of neighbors) {
+                            if (neighborId === parentId) continue;
+                            if (visited.has(neighborId)) {
+                                // Cycle detected
+                                const startIndex = path.indexOf(neighborId);
+                                if (startIndex !== -1) {
+                                    cycleFound = path.slice(startIndex);
+                                    return true;
+                                }
+                            } else {
+                                if (findCycle(neighborId, currId)) return true;
+                            }
+                        }
+                        path.pop();
+                        return false;
+                    };
+
+                    // Run DFS from random vertex
+                    for(let v of vertices) {
+                        if (!visited.has(v.id)) {
+                             if(findCycle(v.id, null)) break;
+                        }
+                    }
+
+                    // 3. Create Polygon
+                    if (cycleFound && cycleFound.length >= 3) {
+                        const points = cycleFound.map(id => {
+                            const v = vertices.find(vx => vx.id === id);
+                            return { x: v.left, y: v.top };
+                        });
+
+                        fillObject = new fabric.Polygon(points, {
+                            fill: 'rgba(52, 152, 219, 0.3)',
+                            selectable: false, evented: false
+                        });
+                        modalCanvas.value.add(fillObject);
+                        fillObject.sendToBack();
+                        
+                        // Ensure grid is behind fill
+                        modalCanvas.value.getObjects('line').forEach(o => {
+                             if(!o.v1) o.sendToBack(); // grid lines have no v1
                         });
                     }
-                    return points;
                 };
 
-                const renderModalObjects = () => {
-                    if(!modalCanvas.value) return;
-                    modalCanvas.value.clear();
-                    modalCanvas.value.backgroundColor = '#252526';
+                // --- Geometry & Graph Ops ---
 
-                    // Modal Grid Lines
-                    new fabric.Line([0, -2000, 0, 2000], { stroke: '#333', selectable: false }).set({ left: 0, top: 0 });
-                    new fabric.Line([-2000, 0, 2000, 0], { stroke: '#333', selectable: false }).set({ left: 0, top: 0 });
-
-                    modalObjects.value.forEach(data => {
-                        let obj;
-                        if(data.type === 'rect') {
-                            obj = new fabric.Rect({
-                                left: data.left, top: data.top,
-                                width: data.width, height: data.height,
-                                fill: '#3498db', stroke: 'white', strokeWidth: 1, opacity: 0.8
-                            });
-                        } else if(data.type === 'circle') {
-                            obj = new fabric.Circle({
-                                left: data.left, top: data.top,
-                                radius: data.radius,
-                                fill: '#e74c3c', stroke: 'white', strokeWidth: 1, opacity: 0.8
-                            });
-                        } else if(data.type === 'polygon') {
-                            // sides 입력값에 따라 동적으로 points 생성
-                            const points = getRegularPolygonPoints(data.sides, data.radius);
-                            obj = new fabric.Polygon(points, {
-                                left: data.left, top: data.top,
-                                fill: '#f1c40f', stroke: 'white', strokeWidth: 1, opacity: 0.8
-                            });
-                        }
-                        
-                        obj.dataRef = data;
-                        modalCanvas.value.add(obj);
-
-                        if(modalSelectedObject.value === data) {
-                            modalCanvas.value.setActiveObject(obj);
-                        }
+                const createVertex = (x, y) => {
+                    const c = new fabric.Circle({
+                        left: x, top: y, radius: 6,
+                        fill: '#e74c3c', stroke: 'white', strokeWidth: 2,
+                        originX: 'center', originY: 'center',
+                        hasControls: false, hasBorders: false
                     });
-                    modalCanvas.value.renderAll();
+                    c.id = Date.now() + Math.random();
+                    modalCanvas.value.add(c);
+                    vertices.push(c);
+                    return c;
                 };
 
-                const updateModalCanvas = () => { renderModalObjects(); };
-                const selectModalObject = (obj) => { modalSelectedObject.value = obj; renderModalObjects(); };
+                const createEdge = (v1, v2) => {
+                    const line = new fabric.Line([v1.left, v1.top, v2.left, v2.top], {
+                        stroke: '#f1c40f', strokeWidth: 4,
+                        selectable: true, hasControls: false, hasBorders: true,
+                        originX: 'center', originY: 'center',
+                        lockMovementX: true, lockMovementY: true
+                    });
+                    line.v1 = v1;
+                    line.v2 = v2;
+                    modalCanvas.value.add(line);
+                    line.sendToBack();
+                    edges.push(line);
+                    return line;
+                };
+
+                const updateConnectedEdges = (vertex) => {
+                    edges.forEach(edge => {
+                        if (edge.v1 === vertex) edge.set({ x1: vertex.left, y1: vertex.top });
+                        else if (edge.v2 === vertex) edge.set({ x2: vertex.left, y2: vertex.top });
+                        edge.setCoords();
+                    });
+                    if (modalSelectedType.value === 'edge' && (modalSelectedObject.value.v1 === vertex || modalSelectedObject.value.v2 === vertex)) {
+                        calculateEdgeProps(modalSelectedObject.value);
+                    }
+                };
+
+                const onVertexInput = () => {
+                    const v = modalSelectedObject.value;
+                    if (!v) return;
+                    handleVertexDrag(v); // Reuse drag logic for updating edges/fill
+                };
+
+                const calculateEdgeProps = (line) => {
+                    const dx = line.x2 - line.x1;
+                    const dy = line.y2 - line.y1;
+                    edgeProps.value.length = parseFloat(Math.sqrt(dx*dx + dy*dy).toFixed(2));
+                    edgeProps.value.angle = parseFloat((Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2));
+                };
+
+                const updateEdgeFromParam = (type) => {
+                    const line = modalSelectedObject.value;
+                    if (!line || !line.v1 || !line.v2) return;
+                    let len = edgeProps.value.length;
+                    let ang = edgeProps.value.angle * Math.PI / 180;
+                    
+                    // Fixed v1, Move v2
+                    if (type === 'length') {
+                        const curAng = Math.atan2(line.y2 - line.y1, line.x2 - line.x1);
+                        line.v2.left = line.v1.left + len * Math.cos(curAng);
+                        line.v2.top = line.v1.top + len * Math.sin(curAng);
+                    } else if (type === 'angle') {
+                        const dx = line.x2 - line.x1; 
+                        const dy = line.y2 - line.y1;
+                        const curLen = Math.sqrt(dx*dx + dy*dy);
+                        line.v2.left = line.v1.left + curLen * Math.cos(ang);
+                        line.v2.top = line.v1.top + curLen * Math.sin(ang);
+                    }
+                    
+                    line.v2.setCoords();
+                    handleVertexDrag(line.v2);
+                };
+
+                const addModalLine = () => {
+                    const v1 = createVertex(100, 100);
+                    const v2 = createVertex(200, 200);
+                    createEdge(v1, v2);
+                    detectAndFillLoops();
+                };
+
+                const addModalRectGraph = () => {
+                    const v1 = createVertex(150, 150);
+                    const v2 = createVertex(350, 150);
+                    const v3 = createVertex(350, 300);
+                    const v4 = createVertex(150, 300);
+                    createEdge(v1, v2); createEdge(v2, v3); createEdge(v3, v4); createEdge(v4, v1);
+                    detectAndFillLoops();
+                };
+
+                const addModalPolygonGraph = () => {
+                    const sides = 5, radius = 80, cx = 300, cy = 200;
+                    const newVerts = [];
+                    for(let i=0; i<sides; i++) {
+                        const ang = (i * 2 * Math.PI / sides) - Math.PI/2;
+                        newVerts.push(createVertex(cx + radius * Math.cos(ang), cy + radius * Math.sin(ang)));
+                    }
+                    for(let i=0; i<sides; i++) createEdge(newVerts[i], newVerts[(i+1)%sides]);
+                    detectAndFillLoops();
+                };
 
                 const saveModel = () => {
-                    if(modalObjects.value.length === 0) return;
-                    // 메인 캔버스에 그룹으로 복사
-                    const objects = modalObjects.value.map(data => {
-                        if(data.type === 'rect') {
-                            return new fabric.Rect({ left: data.left, top: data.top, width: data.width, height: data.height, fill: '#3498db' });
-                        } else if(data.type === 'polygon') {
-                             const points = getRegularPolygonPoints(data.sides, data.radius);
-                             return new fabric.Polygon(points, { left: data.left, top: data.top, fill: '#f1c40f' });
-                        } else {
-                            return new fabric.Circle({ left: data.left, top: data.top, radius: data.radius, fill: '#e74c3c' });
-                        }
-                    });
-                    const group = new fabric.Group(objects, { left: 100, top: 100, subTargetCheck: true });
+                    if (edges.length === 0) return;
+                    const objects = [];
+                    if (fillObject) objects.push(new fabric.Polygon(fillObject.points, { fill: 'rgba(52, 152, 219, 0.5)' }));
+                    edges.forEach(e => objects.push(new fabric.Line([e.x1, e.y1, e.x2, e.y2], { stroke: '#f1c40f', strokeWidth: 2 })));
+                    vertices.forEach(v => objects.push(new fabric.Circle({ left: v.left, top: v.top, radius: 3, fill: '#e74c3c', originX:'center', originY:'center' })));
+                    
+                    const group = new fabric.Group(objects, { left: 100, top: 100 });
                     canvas.value.add(group);
                     canvas.value.setActiveObject(group);
                     canvas.value.requestRenderAll();
                     closeModelerModal();
-                    alert("Model saved to Library (InMemory) & Added to Canvas");
                 };
 
+                // Standard UI Helpers
                 const gridStyle = computed(() => {
                     const zoom = zoomLevel.value;
                     const panX = viewportTransform.value[4];
                     const panY = viewportTransform.value[5];
                     const sizePx = gridSize.value * currentUnit.value.pixelsPerUnit * zoom; 
-                    return {
-                        backgroundSize: `${sizePx}px ${sizePx}px`,
-                        backgroundPosition: `${panX}px ${panY}px`
-                    };
+                    return { backgroundSize: `${sizePx}px ${sizePx}px`, backgroundPosition: `${panX}px ${panY}px` };
                 });
-
+                
                 const isResizing = ref(false);
                 const startResize = () => { isResizing.value = true; };
-                window.addEventListener('mousemove', (e) => {
-                    if (isResizing.value) sidebarWidth.value = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
-                });
-                window.addEventListener('mouseup', () => {
-                    if(isResizing.value) {
-                        isResizing.value = false;
-                        canvas.value.setDimensions({ width: window.innerWidth - sidebarWidth.value, height: window.innerHeight - 32 });
-                    }
-                });
+                window.addEventListener('mousemove', (e) => { if (isResizing.value) sidebarWidth.value = Math.max(200, Math.min(600, window.innerWidth - e.clientX)); });
+                window.addEventListener('mouseup', () => { if(isResizing.value) { isResizing.value = false; canvas.value.setDimensions({ width: window.innerWidth - sidebarWidth.value, height: window.innerHeight - 32 }); } });
 
                 const updateState = () => {
                     const activeObj = canvas.value.getActiveObject();
                     if (activeObj && activeObj.type !== 'activeSelection') {
                         selectedObject.value = activeObj;
-                        props.value = {
-                            left: activeObj.left, top: activeObj.top,
-                            width: (activeObj.width || 0) * activeObj.scaleX,
-                            angle: activeObj.angle, fill: activeObj.fill
-                        };
+                        props.value = { left: activeObj.left, top: activeObj.top, width: (activeObj.width || 0) * activeObj.scaleX, angle: activeObj.angle };
                         currentTab.value = 'inspector';
                     } else { selectedObject.value = null; }
                 };
-
-                const updateProp = (key, userValue) => {
-                    const pxValue = toPx(userValue);
-                    props.value[key] = pxValue; 
-                    updateObject(); 
-                };
-
-                const updateObject = () => {
-                    const activeObj = canvas.value.getActiveObject();
-                    if (!activeObj) return;
-                    activeObj.set({ left: props.value.left, top: props.value.top, angle: props.value.angle });
-                    canvas.value.renderAll();
-                };
+                const updateProp = (key, val) => { props.value[key] = toPx(val); const o = canvas.value.getActiveObject(); if(o) { o.set(key, props.value[key]); canvas.value.requestRenderAll(); } };
+                const updateObject = () => { const o = canvas.value.getActiveObject(); if(o) { o.set(props.value); canvas.value.requestRenderAll(); } };
                 const setActiveLayer = (id) => activeLayerId.value = id;
-                const toggleLayerVisibility = (id) => { /* 생략 (이전과 동일) */ };
+                const toggleLayerVisibility = (id) => {};
 
                 return {
                     sidebarWidth, currentTab, layers, activeLayerId, selectedObject, props,
-                    gridSize, snapEnabled, zoomLevel, gridStyle,
-                    currentUnitKey, currentUnit, changeUnitSystem,
+                    gridSize, snapEnabled, zoomLevel, gridStyle, currentUnitKey, currentUnit, changeUnitSystem,
                     startResize, updateProp, updateObject, setActiveLayer, toggleLayerVisibility, toUnit,
-                    // Modal
                     showModal, openModelerModal, closeModelerModal, 
-                    addModalRect, addModalCircle, addModalPolygon,
-                    modalObjects, modalSelectedObject, selectModalObject, updateModalCanvas, saveModel, getIconClass
+                    addModalLine, addModalRectGraph, addModalPolygonGraph,
+                    modalSelectedObject, modalSelectedType, edgeProps, onVertexInput, updateEdgeFromParam,
+                    saveModel, autoFill, detectAndFillLoops
                 };
             }
         }).mount('#app');
